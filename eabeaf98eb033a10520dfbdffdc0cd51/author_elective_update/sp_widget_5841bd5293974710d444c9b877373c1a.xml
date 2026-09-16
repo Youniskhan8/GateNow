@@ -1,0 +1,3255 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sp_widget">
+    <sp_widget action="DELETE">
+        <category>custom</category>
+        <client_script><![CDATA[api.controller = function($location) {
+
+  /* =========================================================
+     GATENOW · MY REVIEWS · Client script
+
+     Filter, sort, paginate, open. All of it over the set the
+     server already sent — a reviewer's own assignments are tens
+     of rows, not thousands, so a round trip per keystroke would
+     buy nothing and cost the responsiveness.
+
+     Nothing writes to window.location or calls window.open.
+     $location.search moves between portal pages without a
+     navigation sink.
+     ========================================================= */
+
+  var c = this;
+
+  c.query   = '';
+  c.status  = 'all';
+  c.program = '';
+  c.bucket  = 'all';
+  c.sort    = 'due';
+  c.page    = 1;
+
+  var SIZE = c.data.pageSize || 15;
+
+
+  /* =====================================================
+     FACETS
+     ===================================================== */
+
+  function tally(tone) {
+    var all = c.data.reviews || [];
+    if (tone === 'all')  return all.length;
+    if (tone === 'turn') return all.filter(function(r) { return r.myTurn && r.open; }).length;
+    return all.filter(function(r) { return r.tone === tone; }).length;
+  }
+
+  c.filters = [
+    { key: 'all',     label: 'Everything',  count: function() { return tally('all'); } },
+    /* not a status but the question a reviewer actually asks
+       first, so it sits with the statuses rather than in a
+       separate control */
+    { key: 'turn',    label: 'Your turn',   count: function() { return tally('turn'); } },
+    { key: 'waiting', label: 'Not started', count: function() { return tally('waiting'); } },
+    { key: 'open',    label: 'In progress', count: function() { return tally('open'); } },
+    { key: 'done',    label: 'Completed',   count: function() { return tally('done'); } },
+    { key: 'flag',    label: 'Escalated',   count: function() { return tally('flag'); } },
+    { key: 'stood',   label: 'Declined',    count: function() { return tally('stood'); } }
+  ];
+
+  c.buckets = [
+    { key: 'all',   label: 'Any deadline' },
+    { key: 'late',  label: 'Past the deadline' },
+    { key: 'week',  label: 'Within a week' },
+    { key: 'later', label: 'Later than a week' },
+    { key: 'none',  label: 'No deadline or settled' }
+  ];
+
+  c.sorts = [
+    { key: 'due',       label: 'Deadline, soonest first' },
+    { key: 'dueLast',   label: 'Deadline, latest first' },
+    { key: 'scoreHigh', label: 'Score, highest first' },
+    { key: 'scoreLow',  label: 'Score, lowest first' },
+    { key: 'changed',   label: 'Recently changed' },
+    { key: 'applicant', label: 'Applicant, A to Z' },
+    { key: 'program',   label: 'Program, A to Z' }
+  ];
+
+
+  /* =====================================================
+     MATCHING
+
+     Cached. This is read by the template, the pager and the
+     range text, so without a cache Angular re-filters and
+     re-sorts on every digest and hands ng-repeat a fresh array
+     reference each time, which stops the list settling.
+     ===================================================== */
+
+  var key  = null;
+  var list = [];
+
+  function lower(v) { return (v || '').toLowerCase(); }
+
+  function order(k) {
+
+    if (k === 'dueLast')   return function(a, b) { return b.deadlineSort - a.deadlineSort; };
+    if (k === 'scoreHigh') return function(a, b) { return b.scoreSort - a.scoreSort; };
+
+    if (k === 'scoreLow') {
+      /* unscored rows sort last on ascending too. No score is
+         an absence, not a low score, and putting them first
+         would bury every real low score. */
+      return function(a, b) {
+        if (a.scoreSort < 0 && b.scoreSort < 0) return 0;
+        if (a.scoreSort < 0) return 1;
+        if (b.scoreSort < 0) return -1;
+        return a.scoreSort - b.scoreSort;
+      };
+    }
+
+    if (k === 'changed') {
+      return function(a, b) {
+        return a.updatedSort < b.updatedSort ? 1 : (a.updatedSort > b.updatedSort ? -1 : 0);
+      };
+    }
+
+    if (k === 'applicant') return function(a, b) { return lower(a.applicant) < lower(b.applicant) ? -1 : 1; };
+    if (k === 'program')   return function(a, b) { return lower(a.program) < lower(b.program) ? -1 : 1; };
+
+    return function(a, b) { return a.deadlineSort - b.deadlineSort; };
+  }
+
+  c.matches = function() {
+
+    var all = c.data.reviews || [];
+    var k = [all.length, c.status, c.program, c.bucket, c.sort, lower(c.query)].join('|');
+
+    if (k === key) return list;
+
+    var out = all;
+
+    if (c.status === 'turn') {
+      out = out.filter(function(r) { return r.myTurn && r.open; });
+    } else if (c.status !== 'all') {
+      out = out.filter(function(r) { return r.tone === c.status; });
+    }
+
+    if (c.program) out = out.filter(function(r) { return r.program_id === c.program; });
+    if (c.bucket !== 'all') out = out.filter(function(r) { return r.bucket === c.bucket; });
+
+    var q = (c.query || '').trim().toLowerCase();
+    if (q) {
+      /* the searchable blob is assembled server-side, so this
+         is one indexOf per row rather than six joins per
+         keystroke */
+      out = out.filter(function(r) { return r.search.indexOf(q) > -1; });
+    }
+
+    /* slice before sort: sort mutates, and the array is the one
+       the server sent. Sorting it in place would leave the
+       unfiltered set permanently reordered. */
+    out = out.slice().sort(order(c.sort));
+
+    key  = k;
+    list = out;
+    return out;
+  };
+
+  c.dirty = function() {
+    return !!(c.query || c.program || c.status !== 'all' ||
+              c.bucket !== 'all' || c.sort !== 'due');
+  };
+
+  c.summary = function() {
+    var all = c.data.reviews || [];
+    if (!c.data.hasGroups) return 'No review group';
+    if (!all.length) return 'Nothing assigned yet';
+
+    var turn = tally('turn');
+    var late = c.data.counts ? c.data.counts.late : 0;
+
+    var s = all.length + (all.length === 1 ? ' review' : ' reviews') +
+            ', ' + turn + ' waiting on your group';
+    if (late) s += ', ' + late + ' past the deadline';
+    return s;
+  };
+
+
+  /* =====================================================
+     PAGING
+     ===================================================== */
+
+  var pk = null;
+  var pl = [];
+
+  c.pageCount = function() {
+    return Math.max(1, Math.ceil(c.matches().length / SIZE));
+  };
+
+  c.rows = function() {
+    var all = c.matches();
+    var k = key + '|' + c.page;
+    if (k === pk) return pl;
+    pl = all.slice((c.page - 1) * SIZE, (c.page - 1) * SIZE + SIZE);
+    pk = k;
+    return pl;
+  };
+
+  /* a window of page numbers rather than all of them: thirty
+     rows is two pages and fits, three hundred is twenty buttons
+     and does not */
+  c.pageList = function() {
+
+    var total = c.pageCount();
+    var out   = [];
+
+    if (total <= 7) {
+      for (var i = 1; i <= total; i++) out.push(i);
+      return out;
+    }
+
+    out.push(1);
+    var from = Math.max(2, c.page - 1);
+    var to   = Math.min(total - 1, c.page + 1);
+    if (from > 2) out.push('…');
+    for (var p = from; p <= to; p++) out.push(p);
+    if (to < total - 1) out.push('…');
+    out.push(total);
+    return out;
+  };
+
+  c.go = function(p) {
+    if (p === '…') return;
+    if (p < 1 || p > c.pageCount() || p === c.page) return;
+    c.page = p;
+  };
+
+  c.rangeText = function() {
+    var n = c.matches().length;
+    if (!n) return '';
+    var from = (c.page - 1) * SIZE + 1;
+    return 'Showing ' + from + ' to ' + Math.min(n, c.page * SIZE) + ' of ' + n;
+  };
+
+
+  /* =====================================================
+     CHANGES
+
+     Any change to what is matched goes back to page one.
+     Staying on page four of a result set that now has one page
+     shows an empty list.
+     ===================================================== */
+
+  c.onChange = function() {
+    key = null;
+    pk  = null;
+    c.page = 1;
+  };
+
+  /* sorting is the exception: it changes the order, not the
+     set, so the reader stays where they are */
+  c.onSort = function() {
+    key = null;
+    pk  = null;
+  };
+
+  c.setStatus = function(k) {
+    if (c.status === k) return;
+    c.status = k;
+    c.onChange();
+  };
+
+  c.clearSearch = function() {
+    c.query = '';
+    c.onChange();
+  };
+
+  c.reset = function() {
+    c.query   = '';
+    c.status  = 'all';
+    c.program = '';
+    c.bucket  = 'all';
+    c.sort    = 'due';
+    c.onChange();
+  };
+
+
+  /* =====================================================
+     OPENING
+
+     The whole row is the target, so it takes a keyboard too. A
+     div with a click handler and no key handler is a control
+     half the people on the page cannot use.
+     ===================================================== */
+
+  c.open = function(r) {
+    if (!r || !r.sys_id) return;
+    $location.search({
+      id    : c.data.detailPage || 'review_proposal_detail_page',
+      sys_id: r.sys_id
+    });
+  };
+
+  c.onKey = function(e, r) {
+    if (!e) return;
+    if (e.key === 'Enter' || e.key === ' ' || e.keyCode === 13 || e.keyCode === 32) {
+      e.preventDefault();
+      c.open(r);
+    }
+  };
+};]]></client_script>
+        <controller_as>c</controller_as>
+        <css>/* =========================================================&#13;
+   GATENOW · MY REVIEWS&#13;
+   Service Portal widget · CSS / SCSS&#13;
+&#13;
+   Selectors are written out in full. The Service Portal Sass&#13;
+   compiler does not support parent selector concatenation.&#13;
+&#13;
+   Set in the same language as the proposal page this list&#13;
+   leads into: hairlines carry the structure, cards are used&#13;
+   only where something genuinely is a separate object, labels&#13;
+   are sentence case, and colour appears in three places — the&#13;
+   score band, the review state, and the one blue used for&#13;
+   anything clickable.&#13;
+&#13;
+   THE ROW&#13;
+&#13;
+   Five columns, and the one that matters most is the third:&#13;
+   whose turn is it. A reviewer scanning this list is not&#13;
+   asking "what state is this in" so much as "is this mine to&#13;
+   do". So the row says "Your turn" or "With Panel B" in plain&#13;
+   words, and a row that is somebody else's is set back a shade&#13;
+   rather than shouting at the same volume.&#13;
+&#13;
+   TYPE&#13;
+     title     24  700  -0.022em&#13;
+     row ref   15  600  tabular&#13;
+     row value 15  400&#13;
+     label     14  400  sentence case, never capitals&#13;
+     meta      13  400&#13;
+   ========================================================= */&#13;
+&#13;
+/* ---------- typeface ---------- */&#13;
+&#13;
+@font-face {&#13;
+  font-family: "Outfit";&#13;
+  font-style: normal;&#13;
+  font-weight: 400;&#13;
+  font-display: swap;&#13;
+  src: url("/x_enno_gatenow_outfit_regular.woff2") format("woff2");&#13;
+}&#13;
+&#13;
+@font-face {&#13;
+  font-family: "Outfit";&#13;
+  font-style: normal;&#13;
+  font-weight: 500;&#13;
+  font-display: swap;&#13;
+  src: url("/x_enno_gatenow_outfit_medium.woff2") format("woff2");&#13;
+}&#13;
+&#13;
+@font-face {&#13;
+  font-family: "Outfit";&#13;
+  font-style: normal;&#13;
+  font-weight: 600;&#13;
+  font-display: swap;&#13;
+  src: url("/x_enno_gatenow_outfit_semibold.woff2") format("woff2");&#13;
+}&#13;
+&#13;
+@font-face {&#13;
+  font-family: "Outfit";&#13;
+  font-style: normal;&#13;
+  font-weight: 700;&#13;
+  font-display: swap;&#13;
+  src: url("/x_enno_gatenow_outfit_bold.woff2") format("woff2");&#13;
+}&#13;
+&#13;
+&#13;
+/* ---------- palette ----------&#13;
+   The same six values and three signals as the proposal page,&#13;
+   so a reviewer moving from a list into a proposal stays in&#13;
+   one product.&#13;
+   ------------------------------------------------------- */&#13;
+&#13;
+$ink:   #0a2540;&#13;
+$ink-2: #3a4a60;&#13;
+$ink-3: #6b7a90;&#13;
+$ink-4: #98a2b3;&#13;
+&#13;
+$rule:   #e4e9f0;&#13;
+$rule-2: #f0f3f8;&#13;
+$wash:   #f7f9fc;&#13;
+$paper:  #ffffff;&#13;
+$ground: #f4f6fb;&#13;
+&#13;
+$blue:    #1560e0;&#13;
+$blue-dk: #0f4cbb;&#13;
+$blue-1:  #eef4fe;&#13;
+&#13;
+$high: #1f7a5c;&#13;
+$mid:  #9a6b18;&#13;
+$low:  #ab3243;&#13;
+&#13;
+$ui:    "Outfit", "Segoe UI", Roboto, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;&#13;
+$serif: "Iowan Old Style", "Palatino Linotype", Palatino, Charter, Georgia, "Times New Roman", serif;&#13;
+&#13;
+$ease: cubic-bezier(0.32, 0.72, 0, 1);&#13;
+&#13;
+/* =========================================================&#13;
+   FRAME&#13;
+   ========================================================= */&#13;
+&#13;
+.panel,&#13;
+.panel-body,&#13;
+.sp-widget {&#13;
+  overflow: visible !important;&#13;
+  margin: 0 !important;&#13;
+  padding: 0 !important;&#13;
+  background: transparent !important;&#13;
+  border: 0 !important;&#13;
+  box-shadow: none !important;&#13;
+}&#13;
+&#13;
+.gn-shell {&#13;
+  display: flex;&#13;
+  align-items: stretch;&#13;
+  min-height: 100vh;&#13;
+  background: $ground;&#13;
+}&#13;
+&#13;
+/* min-width: 0 is load-bearing. Without it a flex child&#13;
+   refuses to shrink below its own content width and slides&#13;
+   under the rail instead of narrowing. */&#13;
+.rq {&#13;
+  flex: 1;&#13;
+  min-width: 0;&#13;
+  min-height: 100vh;&#13;
+  background: $paper;&#13;
+  font-family: $ui;&#13;
+  color: $ink;&#13;
+  -webkit-font-smoothing: antialiased;&#13;
+}&#13;
+&#13;
+.rq *,&#13;
+.rq *::before,&#13;
+.rq *::after { box-sizing: border-box; }&#13;
+&#13;
+.rq-stale {&#13;
+  padding: 13px 28px;&#13;
+  border-bottom: 1px solid #f0e0c0;&#13;
+  background: #fdf6e9;&#13;
+  font-size: 14px;&#13;
+  line-height: 1.55;&#13;
+  color: #7d5713;&#13;
+}&#13;
+&#13;
+&#13;
+/* =========================================================&#13;
+   BAR&#13;
+   ========================================================= */&#13;
+&#13;
+.rq-bar {&#13;
+  display: flex;&#13;
+  align-items: flex-end;&#13;
+  justify-content: space-between;&#13;
+  flex-wrap: wrap;&#13;
+  gap: 18px 28px;&#13;
+  padding: 26px 28px 20px;&#13;
+}&#13;
+&#13;
+.rq-bar__lead { min-width: 0; }&#13;
+&#13;
+.rq .rq-bar__title {&#13;
+  margin: 0;&#13;
+  font-size: 24px;&#13;
+  font-weight: 700;&#13;
+  letter-spacing: -0.022em;&#13;
+  color: $ink;&#13;
+}&#13;
+&#13;
+/* the subtitle is a sentence about this reviewer's actual&#13;
+   load, not a description of the page. "12 reviews, 3 waiting&#13;
+   on your group" is worth reading; "All your assigned reviews"&#13;
+   is not. */&#13;
+.rq .rq-bar__sub {&#13;
+  margin: 7px 0 0;&#13;
+  font-size: 15px;&#13;
+  color: $ink-3;&#13;
+}&#13;
+&#13;
+.rq-bar__tools {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  gap: 14px;&#13;
+  flex-wrap: wrap;&#13;
+}&#13;
+&#13;
+.rq-find {&#13;
+  position: relative;&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  width: 320px;&#13;
+  max-width: 100%;&#13;
+  margin: 0;&#13;
+}&#13;
+&#13;
+.rq-find input {&#13;
+  width: 100%;&#13;
+  height: 38px;&#13;
+  padding: 0 34px 0 14px;&#13;
+  border: 1px solid $rule;&#13;
+  border-radius: 8px;&#13;
+  background: $paper;&#13;
+  font-family: inherit;&#13;
+  font-size: 14.5px;&#13;
+  color: $ink;&#13;
+  transition: border-color 0.2s $ease, box-shadow 0.2s $ease;&#13;
+}&#13;
+&#13;
+.rq-find input:focus {&#13;
+  outline: 0;&#13;
+  border-color: rgba(21, 96, 224, 0.5);&#13;
+  box-shadow: 0 0 0 3px $blue-1;&#13;
+}&#13;
+&#13;
+.rq-find input::placeholder { color: $ink-4; }&#13;
+&#13;
+.rq-find__x {&#13;
+  position: absolute;&#13;
+  right: 10px;&#13;
+  width: 20px;&#13;
+  height: 20px;&#13;
+  padding: 0;&#13;
+  border: 0;&#13;
+  border-radius: 50%;&#13;
+  background: transparent;&#13;
+  color: $ink-4;&#13;
+  font-size: 17px;&#13;
+  line-height: 1;&#13;
+  cursor: pointer;&#13;
+  transition: color 0.2s $ease;&#13;
+}&#13;
+&#13;
+.rq-find__x:hover { color: $ink; }&#13;
+&#13;
+.rq-pick {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  gap: 9px;&#13;
+  margin: 0;&#13;
+  min-width: 0;&#13;
+}&#13;
+&#13;
+.rq-pick__l {&#13;
+  font-size: 14px;&#13;
+  font-weight: 400;&#13;
+  color: $ink-4;&#13;
+  white-space: nowrap;&#13;
+}&#13;
+&#13;
+/* a native select with no custom arrow. A bespoke dropdown has&#13;
+   to reimplement keyboard handling, typeahead and the mobile&#13;
+   picker, and does none of them as well as the browser. */&#13;
+.rq-pick select {&#13;
+  height: 38px;&#13;
+  max-width: 230px;&#13;
+  padding: 0 10px;&#13;
+  border: 1px solid $rule;&#13;
+  border-radius: 8px;&#13;
+  background: $paper;&#13;
+  font-family: inherit;&#13;
+  font-size: 14.5px;&#13;
+  color: $ink;&#13;
+  cursor: pointer;&#13;
+  transition: border-color 0.2s $ease, box-shadow 0.2s $ease;&#13;
+}&#13;
+&#13;
+.rq-pick select:focus {&#13;
+  outline: 0;&#13;
+  border-color: rgba(21, 96, 224, 0.5);&#13;
+  box-shadow: 0 0 0 3px $blue-1;&#13;
+}&#13;
+&#13;
+&#13;
+/* =========================================================&#13;
+   FILTERS&#13;
+   ========================================================= */&#13;
+&#13;
+.rq-filters {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  justify-content: space-between;&#13;
+  flex-wrap: wrap;&#13;
+  gap: 14px 28px;&#13;
+  padding: 0 28px 16px;&#13;
+  border-bottom: 1px solid $rule;&#13;
+}&#13;
+&#13;
+.rq-chips {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  flex-wrap: wrap;&#13;
+  gap: 4px;&#13;
+}&#13;
+&#13;
+/* words with a count, not filled pills. Seven filled pills in&#13;
+   a row is seven things competing to be pressed. */&#13;
+.rq-chip {&#13;
+  display: inline-flex;&#13;
+  align-items: baseline;&#13;
+  gap: 7px;&#13;
+  padding: 7px 11px;&#13;
+  border: 0;&#13;
+  border-radius: 7px;&#13;
+  background: transparent;&#13;
+  font-family: inherit;&#13;
+  font-size: 14.5px;&#13;
+  font-weight: 400;&#13;
+  color: $ink-3;&#13;
+  cursor: pointer;&#13;
+  transition: background 0.18s $ease, color 0.18s $ease;&#13;
+}&#13;
+&#13;
+.rq-chip:hover {&#13;
+  background: $wash;&#13;
+  color: $ink;&#13;
+}&#13;
+&#13;
+.rq-chip.is-on {&#13;
+  background: $ink;&#13;
+  color: $paper;&#13;
+  font-weight: 500;&#13;
+}&#13;
+&#13;
+.rq-chip__n {&#13;
+  font-size: 13px;&#13;
+  font-variant-numeric: tabular-nums;&#13;
+  color: $ink-4;&#13;
+}&#13;
+&#13;
+.rq-chip.is-on .rq-chip__n { color: rgba(255, 255, 255, 0.64); }&#13;
+&#13;
+.rq-more {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  gap: 18px;&#13;
+  flex-wrap: wrap;&#13;
+}&#13;
+&#13;
+.rq-reset {&#13;
+  padding: 0;&#13;
+  border: 0;&#13;
+  background: transparent;&#13;
+  font-family: inherit;&#13;
+  font-size: 14px;&#13;
+  color: $blue-dk;&#13;
+  cursor: pointer;&#13;
+}&#13;
+&#13;
+.rq-reset:hover { text-decoration: underline; }&#13;
+&#13;
+&#13;
+/* =========================================================&#13;
+   THE LIST&#13;
+&#13;
+   Rows divided by hairlines, not floated as cards. Fifteen&#13;
+   cards with fifteen shadows is fifteen objects; fifteen rows&#13;
+   in a ruled list is one list.&#13;
+   ========================================================= */&#13;
+&#13;
+.rq-head,&#13;
+.rq-row {&#13;
+  display: grid;&#13;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.2fr) 190px 116px 140px;&#13;
+  align-items: center;&#13;
+  gap: 24px;&#13;
+  padding: 0 28px;&#13;
+}&#13;
+&#13;
+.rq-head {&#13;
+  padding-top: 14px;&#13;
+  padding-bottom: 12px;&#13;
+  border-bottom: 1px solid $rule;&#13;
+  font-size: 13.5px;&#13;
+  color: $ink-4;&#13;
+}&#13;
+&#13;
+.rq-row {&#13;
+  padding-top: 15px;&#13;
+  padding-bottom: 15px;&#13;
+  border-bottom: 1px solid $rule-2;&#13;
+  cursor: pointer;&#13;
+  transition: background 0.16s $ease;&#13;
+}&#13;
+&#13;
+.rq-row:hover { background: $wash; }&#13;
+&#13;
+.rq-row:focus-visible {&#13;
+  outline: 2px solid $blue;&#13;
+  outline-offset: -2px;&#13;
+}&#13;
+&#13;
+/* a row held by another group is set back rather than hidden.&#13;
+   Readable, and plainly not the reader's move. */&#13;
+.rq-row.is-theirs { background: #fcfdfe; }&#13;
+&#13;
+.rq-row.is-theirs .rq-num,&#13;
+.rq-row.is-theirs .rq-prog { color: $ink-2; }&#13;
+&#13;
+/* late is carried by the deadline and a hairline at the edge,&#13;
+   not by tinting the whole row. A list where four rows are&#13;
+   pink stops being a list. */&#13;
+.rq-row.is-late { box-shadow: inset 3px 0 0 $low; }&#13;
+&#13;
+.rq-cell { min-width: 0; }&#13;
+&#13;
+.rq-num {&#13;
+  display: block;&#13;
+  font-size: 15px;&#13;
+  font-weight: 600;&#13;
+  letter-spacing: -0.008em;&#13;
+  font-variant-numeric: tabular-nums;&#13;
+  color: $ink;&#13;
+}&#13;
+&#13;
+.rq-who {&#13;
+  display: block;&#13;
+  margin-top: 3px;&#13;
+  font-size: 13.5px;&#13;
+  color: $ink-3;&#13;
+  overflow: hidden;&#13;
+  text-overflow: ellipsis;&#13;
+  white-space: nowrap;&#13;
+}&#13;
+&#13;
+/* said rather than left blank, so nobody wonders whether it&#13;
+   failed to load */&#13;
+.rq-who--none,&#13;
+.rq-prog--none {&#13;
+  font-style: italic;&#13;
+  color: $ink-4;&#13;
+}&#13;
+&#13;
+.rq-prog {&#13;
+  display: block;&#13;
+  font-size: 15px;&#13;
+  font-weight: 400;&#13;
+  color: $ink;&#13;
+  overflow: hidden;&#13;
+  text-overflow: ellipsis;&#13;
+  white-space: nowrap;&#13;
+}&#13;
+&#13;
+.rq-org {&#13;
+  display: block;&#13;
+  margin-top: 3px;&#13;
+  font-size: 13px;&#13;
+  color: $ink-4;&#13;
+  overflow: hidden;&#13;
+  text-overflow: ellipsis;&#13;
+  white-space: nowrap;&#13;
+}&#13;
+&#13;
+.rq-state {&#13;
+  display: inline-flex;&#13;
+  align-items: center;&#13;
+  gap: 7px;&#13;
+  font-size: 14px;&#13;
+  color: $ink-2;&#13;
+}&#13;
+&#13;
+.rq-state::before {&#13;
+  content: "";&#13;
+  width: 7px;&#13;
+  height: 7px;&#13;
+  flex-shrink: 0;&#13;
+  border-radius: 50%;&#13;
+  background: currentColor;&#13;
+}&#13;
+&#13;
+.rq-state--waiting { color: $mid; }&#13;
+.rq-state--open    { color: $blue-dk; }&#13;
+.rq-state--done    { color: $high; }&#13;
+.rq-state--flag    { color: $low; }&#13;
+.rq-state--stood   { color: $ink-4; }&#13;
+&#13;
+/* whose move it is, in plain words. The third column is the&#13;
+   one a reviewer scans first, so it answers the question they&#13;
+   are actually asking. */&#13;
+.rq-turn {&#13;
+  display: block;&#13;
+  margin-top: 4px;&#13;
+  font-size: 13px;&#13;
+  font-weight: 500;&#13;
+  color: $blue-dk;&#13;
+}&#13;
+&#13;
+.rq-turn--other {&#13;
+  font-weight: 400;&#13;
+  color: $ink-4;&#13;
+  overflow: hidden;&#13;
+  text-overflow: ellipsis;&#13;
+  white-space: nowrap;&#13;
+}&#13;
+&#13;
+.rq-score {&#13;
+  display: inline-flex;&#13;
+  align-items: baseline;&#13;
+  gap: 3px;&#13;
+}&#13;
+&#13;
+.rq-score__n {&#13;
+  font-size: 17px;&#13;
+  font-weight: 600;&#13;
+  letter-spacing: -0.014em;&#13;
+  font-variant-numeric: tabular-nums;&#13;
+  color: $ink;&#13;
+}&#13;
+&#13;
+/* the denominator, always. A bare 7 invites the question seven&#13;
+   out of what. */&#13;
+.rq-score__d {&#13;
+  font-size: 13px;&#13;
+  color: $ink-4;&#13;
+}&#13;
+&#13;
+.rq-score--none {&#13;
+  font-size: 14px;&#13;
+  font-style: italic;&#13;
+  color: $ink-4;&#13;
+}&#13;
+&#13;
+.rq-due {&#13;
+  font-size: 14px;&#13;
+  font-variant-numeric: tabular-nums;&#13;
+  color: $ink-2;&#13;
+}&#13;
+&#13;
+.rq-due--late { color: $low; font-weight: 500; }&#13;
+.rq-due--soon { color: $mid; font-weight: 500; }&#13;
+.rq-due--ok   { color: $ink-2; }&#13;
+.rq-due--none { color: $ink-4; font-style: italic; }&#13;
+&#13;
+&#13;
+/* =========================================================&#13;
+   PAGER&#13;
+   ========================================================= */&#13;
+&#13;
+.rq-pager {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  justify-content: space-between;&#13;
+  flex-wrap: wrap;&#13;
+  gap: 14px 24px;&#13;
+  padding: 20px 28px 40px;&#13;
+}&#13;
+&#13;
+.rq .rq-pager__at {&#13;
+  margin: 0;&#13;
+  font-size: 14px;&#13;
+  font-variant-numeric: tabular-nums;&#13;
+  color: $ink-4;&#13;
+}&#13;
+&#13;
+.rq-pager__go {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  gap: 4px;&#13;
+}&#13;
+&#13;
+.rq-pg,&#13;
+.rq-step {&#13;
+  height: 34px;&#13;
+  min-width: 34px;&#13;
+  padding: 0 11px;&#13;
+  border: 1px solid transparent;&#13;
+  border-radius: 7px;&#13;
+  background: transparent;&#13;
+  font-family: inherit;&#13;
+  font-size: 14px;&#13;
+  font-variant-numeric: tabular-nums;&#13;
+  color: $ink-2;&#13;
+  cursor: pointer;&#13;
+  transition: background 0.18s $ease, color 0.18s $ease;&#13;
+}&#13;
+&#13;
+.rq-pg:hover,&#13;
+.rq-step:hover {&#13;
+  background: $wash;&#13;
+  color: $ink;&#13;
+}&#13;
+&#13;
+.rq-pg.is-on {&#13;
+  background: $ink;&#13;
+  color: $paper;&#13;
+  font-weight: 500;&#13;
+}&#13;
+&#13;
+.rq-pg.is-gap {&#13;
+  min-width: 20px;&#13;
+  padding: 0;&#13;
+  background: transparent;&#13;
+  color: $ink-4;&#13;
+  cursor: default;&#13;
+}&#13;
+&#13;
+.rq-pg:disabled,&#13;
+.rq-step:disabled {&#13;
+  opacity: 0.35;&#13;
+  background: transparent;&#13;
+  cursor: default;&#13;
+}&#13;
+&#13;
+&#13;
+/* =========================================================&#13;
+   EMPTY&#13;
+&#13;
+   An empty screen is a place to say what happens next, not a&#13;
+   place for a shrug and an icon.&#13;
+   ========================================================= */&#13;
+&#13;
+.rq-empty {&#13;
+  max-width: 52ch;&#13;
+  padding: 72px 28px;&#13;
+}&#13;
+&#13;
+.rq .rq-empty__h {&#13;
+  margin: 0;&#13;
+  font-size: 20px;&#13;
+  font-weight: 600;&#13;
+  letter-spacing: -0.018em;&#13;
+  color: $ink;&#13;
+}&#13;
+&#13;
+.rq .rq-empty__p {&#13;
+  margin: 12px 0 0;&#13;
+  font-family: $serif;&#13;
+  font-size: 16.5px;&#13;
+  line-height: 1.65;&#13;
+  color: #253449;&#13;
+}&#13;
+&#13;
+.rq-btn {&#13;
+  height: 36px;&#13;
+  margin-top: 20px;&#13;
+  padding: 0 16px;&#13;
+  border: 1px solid $rule;&#13;
+  border-radius: 8px;&#13;
+  background: $paper;&#13;
+  font-family: inherit;&#13;
+  font-size: 14px;&#13;
+  font-weight: 500;&#13;
+  color: $ink-2;&#13;
+  cursor: pointer;&#13;
+  transition: border-color 0.2s $ease, color 0.2s $ease;&#13;
+}&#13;
+&#13;
+.rq-btn:hover {&#13;
+  border-color: $ink-4;&#13;
+  color: $ink;&#13;
+}&#13;
+&#13;
+.rq-btn:focus-visible,&#13;
+.rq-chip:focus-visible,&#13;
+.rq-pg:focus-visible,&#13;
+.rq-step:focus-visible,&#13;
+.rq-reset:focus-visible {&#13;
+  outline: 2px solid $blue;&#13;
+  outline-offset: 2px;&#13;
+}&#13;
+&#13;
+&#13;
+/* =========================================================&#13;
+   MOTION&#13;
+&#13;
+   One fade at load and nothing else that moves on its own.&#13;
+   The transitions above answer a hover, a focus or a press,&#13;
+   which is the only motion a list has any use for.&#13;
+   ========================================================= */&#13;
+&#13;
+@media (prefers-reduced-motion: no-preference) {&#13;
+&#13;
+  @keyframes rqIn {&#13;
+    from { opacity: 0; }&#13;
+    to   { opacity: 1; }&#13;
+  }&#13;
+&#13;
+  .rq-list { animation: rqIn 0.3s $ease; }&#13;
+}&#13;
+&#13;
+&#13;
+/* =========================================================&#13;
+   RESPONSIVE&#13;
+   ========================================================= */&#13;
+&#13;
+@media (max-width: 1200px) {&#13;
+&#13;
+  .rq-head,&#13;
+  .rq-row {&#13;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 168px 100px 120px;&#13;
+    gap: 18px;&#13;
+    padding-left: 22px;&#13;
+    padding-right: 22px;&#13;
+  }&#13;
+&#13;
+  .rq-bar,&#13;
+  .rq-filters,&#13;
+  .rq-pager,&#13;
+  .rq-empty {&#13;
+    padding-left: 22px;&#13;
+    padding-right: 22px;&#13;
+  }&#13;
+}&#13;
+&#13;
+@media (max-width: 960px) {&#13;
+&#13;
+  /* the header row goes first. It is a convenience at full&#13;
+     width and a lie at reduced width, because the columns it&#13;
+     labels no longer line up beneath it. */&#13;
+  .rq-head { display: none; }&#13;
+&#13;
+  .rq-row {&#13;
+    grid-template-columns: minmax(0, 1fr) 140px;&#13;
+    gap: 10px 20px;&#13;
+    padding-top: 18px;&#13;
+    padding-bottom: 18px;&#13;
+  }&#13;
+&#13;
+  /* reference and program take the wide side, status spans,&#13;
+     score and deadline pair off on the last line */&#13;
+  .rq-cell--ref   { grid-column: 1 / 2; }&#13;
+  .rq-cell--prog  { grid-column: 1 / -1; }&#13;
+  .rq-cell--state { grid-column: 1 / -1; }&#13;
+  .rq-cell--score { grid-column: 1 / 2; }&#13;
+&#13;
+  .rq-cell--due { text-align: right; }&#13;
+}&#13;
+&#13;
+@media (max-width: 640px) {&#13;
+&#13;
+  .rq-bar,&#13;
+  .rq-filters,&#13;
+  .rq-pager,&#13;
+  .rq-empty,&#13;
+  .rq-row {&#13;
+    padding-left: 16px;&#13;
+    padding-right: 16px;&#13;
+  }&#13;
+&#13;
+  .rq .rq-bar__title { font-size: 21px; }&#13;
+&#13;
+  .rq-bar__tools { width: 100%; }&#13;
+&#13;
+  .rq-find { width: 100%; }&#13;
+&#13;
+  .rq-pick { width: 100%; }&#13;
+&#13;
+  .rq-pick select {&#13;
+    flex: 1;&#13;
+    max-width: none;&#13;
+  }&#13;
+&#13;
+  .rq-chips {&#13;
+    flex-wrap: nowrap;&#13;
+    overflow-x: auto;&#13;
+    -webkit-overflow-scrolling: touch;&#13;
+    padding-bottom: 2px;&#13;
+  }&#13;
+&#13;
+  .rq-chip { flex-shrink: 0; }&#13;
+&#13;
+  .rq-more {&#13;
+    align-items: stretch;&#13;
+    flex-direction: column;&#13;
+    width: 100%;&#13;
+    gap: 12px;&#13;
+  }&#13;
+&#13;
+  .rq-row {&#13;
+    grid-template-columns: minmax(0, 1fr);&#13;
+    gap: 8px;&#13;
+  }&#13;
+&#13;
+  .rq-cell--due { text-align: left; }&#13;
+}&#13;
+&#13;
+@media (prefers-reduced-motion: reduce) {&#13;
+  .rq,&#13;
+  .rq * {&#13;
+    transition: none;&#13;
+    animation: none;&#13;
+  }&#13;
+}</css>
+        <data_table>sp_instance</data_table>
+        <demo_data/>
+        <description/>
+        <docs/>
+        <field_list/>
+        <has_preview>false</has_preview>
+        <id>review_proposals</id>
+        <internal>false</internal>
+        <link><![CDATA[function link(scope, element, attrs, controller) {
+  
+}]]></link>
+        <name>Review Proposals</name>
+        <option_schema/>
+        <public>false</public>
+        <roles>x_enno_gatenow.grant_review_user</roles>
+        <script><![CDATA[(function () {
+
+  /* =========================================================
+     GATENOW · MY REVIEWS
+     Service Portal widget · Server script
+
+     Every review assigned to any of the reviewer's groups,
+     settled or not, with the facets needed to cut it down.
+
+     ── WHO SEES WHAT ─────────────────────────────────────────
+
+     A review is assigned to one or more groups through the
+     reviewer field, and one of them holds it at a time through
+     review_group. Two different questions:
+
+       reviewer     membership of any of these means you can
+                    SEE the review
+       review_group membership of this one means it is your
+                    turn to act
+
+     The query is on reviewer, and the turn is worked out per
+     row. Querying review_group alone, as an earlier version
+     did, hides a proposal from the other assigned groups until
+     it reaches them — which is the opposite of what a queue is
+     for.
+     ========================================================= */
+
+  var REVIEW    = 'x_enno_gatenow_grant_review';
+  var PROGRAM   = 'x_enno_gatenow_grant_program';
+  var APPLICANT = 'x_enno_gatenow_service_applicants';
+
+  var me = gs.getUserID();
+
+  data.shape   = 'reviewqueue-v2';
+  data.reviews = [];
+
+  if (typeof input === 'undefined' || input === null) input = {};
+
+  function opt(name, fallback) {
+    var v = options[name];
+    return (v === null || v === undefined || v === '') ? fallback : v.toString();
+  }
+
+  data.detailPage = opt('detail_page', 'review_proposal_detail_page');
+  data.pageSize   = parseInt(opt('page_size', '15'), 10) || 15;
+  data.rail       = $sp.getWidget(opt('rail_widget', 'gatenow_reviewer_rail'));
+
+
+  /* ============================================================
+     HELPERS
+     ============================================================ */
+
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  function fmtDate(raw) {
+    if (!raw || raw === 'null') return '';
+    var d = String(raw).split(' ')[0].split('-');
+    if (d.length !== 3) return String(raw).split(' ')[0];
+    return parseInt(d[2], 10) + ' ' + MONTHS[parseInt(d[1], 10) - 1] + ' ' + d[0];
+  }
+
+  var now = new GlideDateTime();
+
+  function daysFromNow(raw) {
+    if (!raw) return null;
+    try {
+      var g = new GlideDateTime(String(raw).length === 10 ? raw + ' 00:00:00' : raw);
+      return Math.round((g.getNumericValue() - now.getNumericValue()) / 86400000);
+    } catch (e) { return null; }
+  }
+
+  function r1(n) { return Math.round(n * 10) / 10; }
+
+
+  /* ============================================================
+     WHO IS ASKING
+     ============================================================ */
+
+  var groups = [];
+
+  try {
+    var gm = new GlideRecordSecure('sys_user_grmember');
+    gm.addQuery('user', me);
+    gm.query();
+    while (gm.next()) groups.push(gm.getValue('group'));
+  } catch (e) {
+    gs.warn('[MyReviews] group membership unreadable: ' + e.message);
+  }
+
+  data.hasGroups = groups.length > 0;
+
+  function mine(sysId) {
+    return !!sysId && groups.indexOf('' + sysId) !== -1;
+  }
+
+
+  /* ============================================================
+     STATUS
+
+     The five values on the form's choice list. Four tones plus
+     one alarm: a tone names a kind of state, the status label
+     carries which particular one it is.
+     ============================================================ */
+
+  var TONES = {
+    'Review pending'      : 'waiting',
+    'Review in progress'  : 'open',
+    'Review completed'    : 'done',
+    'Declined by Reviewer': 'stood',
+    'Escalated'           : 'flag'
+  };
+
+  function toneOf(s) { return TONES[s] || 'waiting'; }
+
+  function isOpen(s) {
+    return s !== 'Review completed' && s !== 'Declined by Reviewer';
+  }
+
+
+  /* ============================================================
+     THE ROWS
+     ============================================================ */
+
+  var counts = { all: 0, waiting: 0, open: 0, done: 0, stood: 0, flag: 0,
+                 turn: 0, late: 0 };
+
+  var programCache   = {};
+  var applicantCache = {};
+  var programSeen    = {};
+
+  function program(sysId) {
+    if (!sysId) return null;
+    if (programCache[sysId] !== undefined) return programCache[sysId];
+    var out = null;
+    try {
+      var pg = new GlideRecordSecure(PROGRAM);
+      if (pg.get(sysId)) {
+        out = {
+          name    : pg.getDisplayValue('program_name') || '',
+          number  : pg.getValue('number') || '',
+          category: pg.getDisplayValue('category') || ''
+        };
+      }
+    } catch (e) { /* leave null; the row says so */ }
+    programCache[sysId] = out;
+    return out;
+  }
+
+  function applicant(sysId) {
+    if (!sysId) return null;
+    if (applicantCache[sysId] !== undefined) return applicantCache[sysId];
+    var out = null;
+    try {
+      var ap = new GlideRecordSecure(APPLICANT);
+      if (ap.get(sysId)) {
+        out = {
+          name  : ((ap.getValue('first_name') || '') + ' ' +
+                   (ap.getValue('last_name') || '')).trim(),
+          number: ap.getValue('number') || '',
+          org   : ap.getValue('organization') || ''
+        };
+      }
+    } catch (e) { /* as above */ }
+    applicantCache[sysId] = out;
+    return out;
+  }
+
+  if (groups.length) {
+
+    var gr = new GlideRecordSecure(REVIEW);
+
+    /* reviewer is a list of groups, so the match is CONTAINS
+       per group, OR'd together. addOrCondition is called on the
+       QueryCondition the first addQuery returned, which keeps
+       the whole OR bracketed as one condition rather than
+       leaking across the rest of the query. */
+    var hasReviewer = false;
+    try { hasReviewer = gr.isValidField('reviewer'); } catch (e) {}
+
+    if (hasReviewer) {
+      var qc = gr.addQuery('reviewer', 'CONTAINS', groups[0]);
+      for (var q = 1; q < groups.length; q++) {
+        qc.addOrCondition('reviewer', 'CONTAINS', groups[q]);
+      }
+    } else {
+      gr.addQuery('review_group', 'IN', groups.join(','));
+      gs.info('[MyReviews] no reviewer field, falling back to review_group');
+    }
+
+    gr.orderBy('review_deadline');
+    gr.query();
+
+    while (gr.next()) {
+
+      var status = gr.getDisplayValue('status') || gs.getMessage('Unknown');
+      var tone   = toneOf(status);
+      var open   = isOpen(status);
+
+      var holderId = gr.getValue('review_group');
+      var myTurn   = mine(holderId);
+
+      var dlRaw = gr.getValue('review_deadline') || '';
+      var days  = daysFromNow(dlRaw);
+
+      /* only work that is actually with one of my groups counts
+         as late for me. A review sitting past its deadline in
+         somebody else's queue is their problem, and marking it
+         red here would be telling me to act on something I
+         cannot act on. */
+      var late = (open && myTurn && days !== null && days < 0);
+
+      var bucket;
+      if (!open || days === null) bucket = 'none';
+      else if (days < 0)          bucket = 'late';
+      else if (days <= 7)         bucket = 'week';
+      else                        bucket = 'later';
+
+      var due;
+      if (!dlRaw)        due = { text: 'No deadline', tone: 'none' };
+      else if (!open)    due = { text: fmtDate(dlRaw), tone: 'none' };
+      else if (!myTurn)  due = { text: fmtDate(dlRaw), tone: 'none' };
+      else if (days < 0) {
+        var n = Math.abs(days);
+        due = { text: n + (n === 1 ? ' day late' : ' days late'), tone: 'late' };
+      }
+      else if (days === 0) due = { text: 'Due today', tone: 'soon' };
+      else if (days <= 7)  due = { text: days + (days === 1 ? ' day left' : ' days left'), tone: 'soon' };
+      else                 due = { text: fmtDate(dlRaw), tone: 'ok' };
+
+      var scoreRaw = gr.getValue('score');
+      var score    = (scoreRaw === '' || scoreRaw === null) ? null : parseFloat(scoreRaw);
+      if (score === null || isNaN(score)) score = null;
+
+      var pgmId = gr.getValue('program');
+      var pgm   = program(pgmId);
+      var apl   = applicant(gr.getValue('applicant'));
+
+      counts.all++;
+      if (counts[tone] !== undefined) counts[tone]++;
+      if (open && myTurn) counts.turn++;
+      if (late) counts.late++;
+
+      if (pgmId && pgm && !programSeen[pgmId]) {
+        programSeen[pgmId] = { key: pgmId, label: pgm.name || pgm.number, count: 0 };
+      }
+      if (pgmId && programSeen[pgmId]) programSeen[pgmId].count++;
+
+      var row = {
+        sys_id: gr.getUniqueValue(),
+        number: gr.getValue('number') || '',
+
+        status: status,
+        tone  : tone,
+        open  : open,
+
+        myTurn  : myTurn,
+        holder  : gr.getDisplayValue('review_group') || '',
+
+        applicant: apl ? apl.name : '',
+        org      : apl ? apl.org : '',
+
+        program_id: pgmId || '',
+        program   : pgm ? pgm.name : '',
+        category  : pgm ? pgm.category : '',
+
+        deadline    : fmtDate(dlRaw),
+        deadlineSort: days === null ? 999999 : days,
+        dueText : due.text,
+        dueTone : due.tone,
+        bucket  : bucket,
+        late    : late,
+
+        score    : score,
+        scoreText: score === null ? '' : r1(score) + '',
+        scoreSort: score === null ? -1 : score,
+
+        updatedSort: gr.getValue('sys_updated_on') || '',
+        updated    : fmtDate(gr.getValue('sys_updated_on'))
+      };
+
+      row.search = (row.number + ' ' + row.applicant + ' ' + row.org + ' ' +
+                    row.program + ' ' + row.status + ' ' + row.holder).toLowerCase();
+
+      data.reviews.push(row);
+    }
+  }
+
+
+  /* ============================================================
+     FACETS
+
+     Built from the rows rather than a choice table. A program
+     the reviewer has no work for should not appear in their
+     filter, and one that exists only in their data should.
+     ============================================================ */
+
+  var progList = [];
+  for (var k in programSeen) {
+    if (programSeen.hasOwnProperty(k)) progList.push(programSeen[k]);
+  }
+  progList.sort(function (a, b) {
+    return (a.label || '').toLowerCase() < (b.label || '').toLowerCase() ? -1 : 1;
+  });
+
+  data.programs = progList;
+  data.counts   = counts;
+
+})();]]></script>
+        <servicenow>false</servicenow>
+        <sys_class_name>sp_widget</sys_class_name>
+        <sys_created_by>umar.farooq</sys_created_by>
+        <sys_created_on>2026-09-15 10:38:05</sys_created_on>
+        <sys_id>5841bd5293974710d444c9b877373c1a</sys_id>
+        <sys_mod_count>1</sys_mod_count>
+        <sys_name>Review Proposals</sys_name>
+        <sys_package display_value="GateNow" source="x_enno_gatenow">eabeaf98eb033a10520dfbdffdc0cd51</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="GateNow">eabeaf98eb033a10520dfbdffdc0cd51</sys_scope>
+        <sys_update_name>sp_widget_5841bd5293974710d444c9b877373c1a</sys_update_name>
+        <sys_updated_by>umar.farooq</sys_updated_by>
+        <sys_updated_on>2026-09-15 10:40:29</sys_updated_on>
+        <template><![CDATA[<!-- =========================================================
+     GATENOW · MY REVIEWS
+     Service Portal widget · HTML template
+
+     A work queue, set like the proposal page it leads into:
+     hairlines instead of floating cards, sentence case instead
+     of tracked-out capitals, one accent.
+
+     The column the reader scans first is the one that says
+     whether a row is theirs to act on. Everything else on the
+     row is there to help them recognise it.
+     ========================================================= -->
+
+<div class="gn-shell">
+
+  <sp-widget widget="data.rail"></sp-widget>
+
+  <div class="rq">
+
+    <!-- the four fields are one unit: paste three and the page
+         renders an empty list with nothing to explain it -->
+    <div class="rq-stale" ng-if="c.data.shape !== 'reviewqueue-v2'">
+      The server script has not been updated. This page is running new markup
+      against an older script, so the list has no data to work from.
+    </div>
+
+
+    <!-- ═══════════════ BAR ═══════════════ -->
+    <header class="rq-bar">
+
+      <div class="rq-bar__lead">
+        <h1 class="rq-bar__title">My reviews</h1>
+        <p class="rq-bar__sub">{{c.summary()}}</p>
+      </div>
+
+      <div class="rq-bar__tools" ng-if="c.data.reviews.length">
+
+        <label class="rq-find">
+          <input type="text" ng-model="c.query" ng-change="c.onChange()"
+                 placeholder="Search by reference, applicant or program" />
+          <button type="button" class="rq-find__x"
+                  ng-if="c.query" ng-click="c.clearSearch()"
+                  aria-label="Clear the search">&times;</button>
+        </label>
+
+        <label class="rq-pick">
+          <span class="rq-pick__l">Sort</span>
+          <select ng-model="c.sort" ng-change="c.onSort()">
+            <option ng-repeat="s in c.sorts track by s.key" value="{{s.key}}">{{s.label}}</option>
+          </select>
+        </label>
+
+      </div>
+
+    </header>
+
+
+    <!-- ═══════════════ FILTERS ═══════════════
+
+         Status as a row of plain words, because status is the
+         filter reached for constantly. Program and deadline as
+         selects underneath, because they are not.
+         ═══════════════════════════════════════ -->
+    <div class="rq-filters" ng-if="c.data.reviews.length">
+
+      <nav class="rq-chips" aria-label="Filter by status">
+        <button type="button" class="rq-chip"
+                ng-repeat="f in c.filters track by f.key"
+                ng-class="{'is-on': c.status === f.key}"
+                ng-click="c.setStatus(f.key)">
+          {{f.label}}<span class="rq-chip__n">{{f.count()}}</span>
+        </button>
+      </nav>
+
+      <div class="rq-more">
+
+        <label class="rq-pick" ng-if="c.data.programs.length > 1">
+          <span class="rq-pick__l">Program</span>
+          <select ng-model="c.program" ng-change="c.onChange()">
+            <option value="">Every program</option>
+            <option ng-repeat="p in c.data.programs track by p.key"
+                    value="{{p.key}}">{{p.label}} ({{p.count}})</option>
+          </select>
+        </label>
+
+        <label class="rq-pick">
+          <span class="rq-pick__l">Deadline</span>
+          <select ng-model="c.bucket" ng-change="c.onChange()">
+            <option ng-repeat="b in c.buckets track by b.key" value="{{b.key}}">{{b.label}}</option>
+          </select>
+        </label>
+
+        <button type="button" class="rq-reset" ng-if="c.dirty()" ng-click="c.reset()">
+          Clear filters
+        </button>
+
+      </div>
+
+    </div>
+
+
+    <!-- ═══════════════ THE LIST ═══════════════ -->
+    <div class="rq-list" ng-if="c.rows().length">
+
+      <div class="rq-head" aria-hidden="true">
+        <span>Reference</span>
+        <span>Program</span>
+        <span>Status</span>
+        <span>Score</span>
+        <span>Deadline</span>
+      </div>
+
+      <article class="rq-row"
+               ng-repeat="r in c.rows() track by r.sys_id"
+               ng-class="{'is-late': r.late, 'is-theirs': !r.myTurn && r.open}"
+               ng-click="c.open(r)"
+               ng-keydown="c.onKey($event, r)"
+               tabindex="0" role="link">
+
+        <div class="rq-cell rq-cell--ref">
+          <span class="rq-num">{{r.number}}</span>
+          <span class="rq-who" ng-if="r.applicant">{{r.applicant}}</span>
+          <span class="rq-who rq-who--none" ng-if="!r.applicant">No applicant on record</span>
+        </div>
+
+        <div class="rq-cell rq-cell--prog">
+          <span class="rq-prog" ng-if="r.program">{{r.program}}</span>
+          <span class="rq-prog rq-prog--none" ng-if="!r.program">No program set</span>
+          <span class="rq-org" ng-if="r.org">{{r.org}}</span>
+        </div>
+
+        <div class="rq-cell rq-cell--state">
+          <span class="rq-state" ng-class="'rq-state--' + r.tone">{{r.status}}</span>
+          <!-- the fact the whole row turns on: whose move is it -->
+          <span class="rq-turn" ng-if="r.myTurn && r.open">Your turn</span>
+          <span class="rq-turn rq-turn--other" ng-if="!r.myTurn && r.open">With {{r.holder}}</span>
+        </div>
+
+        <div class="rq-cell rq-cell--score">
+          <span class="rq-score" ng-if="r.score !== null">
+            <span class="rq-score__n">{{r.scoreText}}</span>
+            <span class="rq-score__d">/10</span>
+          </span>
+          <span class="rq-score rq-score--none" ng-if="r.score === null">Not scored</span>
+        </div>
+
+        <div class="rq-cell rq-cell--due">
+          <span class="rq-due" ng-class="'rq-due--' + r.dueTone">{{r.dueText}}</span>
+        </div>
+
+      </article>
+
+    </div>
+
+
+    <!-- ═══════════════ PAGER ═══════════════ -->
+    <nav class="rq-pager" ng-if="c.pageCount() > 1">
+
+      <p class="rq-pager__at">{{c.rangeText()}}</p>
+
+      <div class="rq-pager__go">
+        <button type="button" class="rq-step"
+                ng-disabled="c.page === 1" ng-click="c.go(c.page - 1)">Previous</button>
+        <button type="button" class="rq-pg"
+                ng-repeat="p in c.pageList() track by $index"
+                ng-class="{'is-on': p === c.page, 'is-gap': p === '…'}"
+                ng-disabled="p === '…'"
+                ng-click="c.go(p)">{{p}}</button>
+        <button type="button" class="rq-step"
+                ng-disabled="c.page === c.pageCount()" ng-click="c.go(c.page + 1)">Next</button>
+      </div>
+
+    </nav>
+
+
+    <!-- ═══════════════ EMPTY ═══════════════
+
+         An empty screen is a place to say what to do next, not
+         a place for a shrug and an icon.
+         ═══════════════════════════════════ -->
+
+    <div class="rq-empty" ng-if="!c.data.hasGroups">
+      <h2 class="rq-empty__h">You are not in a review group yet</h2>
+      <p class="rq-empty__p">
+        Reviews are assigned to groups rather than to people. Ask the program office
+        to add you to the group that handles your area, and anything assigned to it
+        will appear here.
+      </p>
+    </div>
+
+    <div class="rq-empty" ng-if="c.data.hasGroups && !c.data.reviews.length">
+      <h2 class="rq-empty__h">Nothing assigned to your groups</h2>
+      <p class="rq-empty__p">
+        When a proposal is sent to one of your groups it appears here, whether or not
+        it is your group's turn to act on it.
+      </p>
+    </div>
+
+    <div class="rq-empty" ng-if="c.data.reviews.length && !c.matches().length">
+      <h2 class="rq-empty__h">Nothing matches those filters</h2>
+      <p class="rq-empty__p">Widen one of them, or start again.</p>
+      <button type="button" class="rq-btn" ng-click="c.reset()">Clear filters</button>
+    </div>
+
+  </div>
+
+</div>]]></template>
+    </sp_widget>
+    <sys_update_version action="INSERT_OR_UPDATE">
+        <action>DELETE</action>
+        <application display_value="GateNow">eabeaf98eb033a10520dfbdffdc0cd51</application>
+        <file_path/>
+        <instance_id>bb2055c493b17a90d9f6ddd548373c66</instance_id>
+        <instance_name>ven08761</instance_name>
+        <name>sp_widget_5841bd5293974710d444c9b877373c1a</name>
+        <payload>&lt;?xml version="1.0" encoding="UTF-8"?&gt;&lt;record_update table="sp_widget"&gt;&lt;sp_widget action="INSERT_OR_UPDATE"&gt;&lt;category&gt;custom&lt;/category&gt;&lt;client_script&gt;&lt;![CDATA[api.controller = function($location) {
+
+  /* =========================================================
+     GATENOW · MY REVIEWS · Client script
+
+     Filter, sort, paginate, open. All of it over the set the
+     server already sent — a reviewer's own assignments are tens
+     of rows, not thousands, so a round trip per keystroke would
+     buy nothing and cost the responsiveness.
+
+     Nothing writes to window.location or calls window.open.
+     $location.search moves between portal pages without a
+     navigation sink.
+     ========================================================= */
+
+  var c = this;
+
+  c.query   = '';
+  c.status  = 'all';
+  c.program = '';
+  c.bucket  = 'all';
+  c.sort    = 'due';
+  c.page    = 1;
+
+  var SIZE = c.data.pageSize || 15;
+
+
+  /* =====================================================
+     FACETS
+     ===================================================== */
+
+  function tally(tone) {
+    var all = c.data.reviews || [];
+    if (tone === 'all')  return all.length;
+    if (tone === 'turn') return all.filter(function(r) { return r.myTurn &amp;&amp; r.open; }).length;
+    return all.filter(function(r) { return r.tone === tone; }).length;
+  }
+
+  c.filters = [
+    { key: 'all',     label: 'Everything',  count: function() { return tally('all'); } },
+    /* not a status but the question a reviewer actually asks
+       first, so it sits with the statuses rather than in a
+       separate control */
+    { key: 'turn',    label: 'Your turn',   count: function() { return tally('turn'); } },
+    { key: 'waiting', label: 'Not started', count: function() { return tally('waiting'); } },
+    { key: 'open',    label: 'In progress', count: function() { return tally('open'); } },
+    { key: 'done',    label: 'Completed',   count: function() { return tally('done'); } },
+    { key: 'flag',    label: 'Escalated',   count: function() { return tally('flag'); } },
+    { key: 'stood',   label: 'Declined',    count: function() { return tally('stood'); } }
+  ];
+
+  c.buckets = [
+    { key: 'all',   label: 'Any deadline' },
+    { key: 'late',  label: 'Past the deadline' },
+    { key: 'week',  label: 'Within a week' },
+    { key: 'later', label: 'Later than a week' },
+    { key: 'none',  label: 'No deadline or settled' }
+  ];
+
+  c.sorts = [
+    { key: 'due',       label: 'Deadline, soonest first' },
+    { key: 'dueLast',   label: 'Deadline, latest first' },
+    { key: 'scoreHigh', label: 'Score, highest first' },
+    { key: 'scoreLow',  label: 'Score, lowest first' },
+    { key: 'changed',   label: 'Recently changed' },
+    { key: 'applicant', label: 'Applicant, A to Z' },
+    { key: 'program',   label: 'Program, A to Z' }
+  ];
+
+
+  /* =====================================================
+     MATCHING
+
+     Cached. This is read by the template, the pager and the
+     range text, so without a cache Angular re-filters and
+     re-sorts on every digest and hands ng-repeat a fresh array
+     reference each time, which stops the list settling.
+     ===================================================== */
+
+  var key  = null;
+  var list = [];
+
+  function lower(v) { return (v || '').toLowerCase(); }
+
+  function order(k) {
+
+    if (k === 'dueLast')   return function(a, b) { return b.deadlineSort - a.deadlineSort; };
+    if (k === 'scoreHigh') return function(a, b) { return b.scoreSort - a.scoreSort; };
+
+    if (k === 'scoreLow') {
+      /* unscored rows sort last on ascending too. No score is
+         an absence, not a low score, and putting them first
+         would bury every real low score. */
+      return function(a, b) {
+        if (a.scoreSort &lt; 0 &amp;&amp; b.scoreSort &lt; 0) return 0;
+        if (a.scoreSort &lt; 0) return 1;
+        if (b.scoreSort &lt; 0) return -1;
+        return a.scoreSort - b.scoreSort;
+      };
+    }
+
+    if (k === 'changed') {
+      return function(a, b) {
+        return a.updatedSort &lt; b.updatedSort ? 1 : (a.updatedSort &gt; b.updatedSort ? -1 : 0);
+      };
+    }
+
+    if (k === 'applicant') return function(a, b) { return lower(a.applicant) &lt; lower(b.applicant) ? -1 : 1; };
+    if (k === 'program')   return function(a, b) { return lower(a.program) &lt; lower(b.program) ? -1 : 1; };
+
+    return function(a, b) { return a.deadlineSort - b.deadlineSort; };
+  }
+
+  c.matches = function() {
+
+    var all = c.data.reviews || [];
+    var k = [all.length, c.status, c.program, c.bucket, c.sort, lower(c.query)].join('|');
+
+    if (k === key) return list;
+
+    var out = all;
+
+    if (c.status === 'turn') {
+      out = out.filter(function(r) { return r.myTurn &amp;&amp; r.open; });
+    } else if (c.status !== 'all') {
+      out = out.filter(function(r) { return r.tone === c.status; });
+    }
+
+    if (c.program) out = out.filter(function(r) { return r.program_id === c.program; });
+    if (c.bucket !== 'all') out = out.filter(function(r) { return r.bucket === c.bucket; });
+
+    var q = (c.query || '').trim().toLowerCase();
+    if (q) {
+      /* the searchable blob is assembled server-side, so this
+         is one indexOf per row rather than six joins per
+         keystroke */
+      out = out.filter(function(r) { return r.search.indexOf(q) &gt; -1; });
+    }
+
+    /* slice before sort: sort mutates, and the array is the one
+       the server sent. Sorting it in place would leave the
+       unfiltered set permanently reordered. */
+    out = out.slice().sort(order(c.sort));
+
+    key  = k;
+    list = out;
+    return out;
+  };
+
+  c.dirty = function() {
+    return !!(c.query || c.program || c.status !== 'all' ||
+              c.bucket !== 'all' || c.sort !== 'due');
+  };
+
+  c.summary = function() {
+    var all = c.data.reviews || [];
+    if (!c.data.hasGroups) return 'No review group';
+    if (!all.length) return 'Nothing assigned yet';
+
+    var turn = tally('turn');
+    var late = c.data.counts ? c.data.counts.late : 0;
+
+    var s = all.length + (all.length === 1 ? ' review' : ' reviews') +
+            ', ' + turn + ' waiting on your group';
+    if (late) s += ', ' + late + ' past the deadline';
+    return s;
+  };
+
+
+  /* =====================================================
+     PAGING
+     ===================================================== */
+
+  var pk = null;
+  var pl = [];
+
+  c.pageCount = function() {
+    return Math.max(1, Math.ceil(c.matches().length / SIZE));
+  };
+
+  c.rows = function() {
+    var all = c.matches();
+    var k = key + '|' + c.page;
+    if (k === pk) return pl;
+    pl = all.slice((c.page - 1) * SIZE, (c.page - 1) * SIZE + SIZE);
+    pk = k;
+    return pl;
+  };
+
+  /* a window of page numbers rather than all of them: thirty
+     rows is two pages and fits, three hundred is twenty buttons
+     and does not */
+  c.pageList = function() {
+
+    var total = c.pageCount();
+    var out   = [];
+
+    if (total &lt;= 7) {
+      for (var i = 1; i &lt;= total; i++) out.push(i);
+      return out;
+    }
+
+    out.push(1);
+    var from = Math.max(2, c.page - 1);
+    var to   = Math.min(total - 1, c.page + 1);
+    if (from &gt; 2) out.push('…');
+    for (var p = from; p &lt;= to; p++) out.push(p);
+    if (to &lt; total - 1) out.push('…');
+    out.push(total);
+    return out;
+  };
+
+  c.go = function(p) {
+    if (p === '…') return;
+    if (p &lt; 1 || p &gt; c.pageCount() || p === c.page) return;
+    c.page = p;
+  };
+
+  c.rangeText = function() {
+    var n = c.matches().length;
+    if (!n) return '';
+    var from = (c.page - 1) * SIZE + 1;
+    return 'Showing ' + from + ' to ' + Math.min(n, c.page * SIZE) + ' of ' + n;
+  };
+
+
+  /* =====================================================
+     CHANGES
+
+     Any change to what is matched goes back to page one.
+     Staying on page four of a result set that now has one page
+     shows an empty list.
+     ===================================================== */
+
+  c.onChange = function() {
+    key = null;
+    pk  = null;
+    c.page = 1;
+  };
+
+  /* sorting is the exception: it changes the order, not the
+     set, so the reader stays where they are */
+  c.onSort = function() {
+    key = null;
+    pk  = null;
+  };
+
+  c.setStatus = function(k) {
+    if (c.status === k) return;
+    c.status = k;
+    c.onChange();
+  };
+
+  c.clearSearch = function() {
+    c.query = '';
+    c.onChange();
+  };
+
+  c.reset = function() {
+    c.query   = '';
+    c.status  = 'all';
+    c.program = '';
+    c.bucket  = 'all';
+    c.sort    = 'due';
+    c.onChange();
+  };
+
+
+  /* =====================================================
+     OPENING
+
+     The whole row is the target, so it takes a keyboard too. A
+     div with a click handler and no key handler is a control
+     half the people on the page cannot use.
+     ===================================================== */
+
+  c.open = function(r) {
+    if (!r || !r.sys_id) return;
+    $location.search({
+      id    : c.data.detailPage || 'review_proposal_detail_page',
+      sys_id: r.sys_id
+    });
+  };
+
+  c.onKey = function(e, r) {
+    if (!e) return;
+    if (e.key === 'Enter' || e.key === ' ' || e.keyCode === 13 || e.keyCode === 32) {
+      e.preventDefault();
+      c.open(r);
+    }
+  };
+};]]&gt;&lt;/client_script&gt;&lt;controller_as&gt;c&lt;/controller_as&gt;&lt;css&gt;/* =========================================================&amp;#13;
+   GATENOW · MY REVIEWS&amp;#13;
+   Service Portal widget · CSS / SCSS&amp;#13;
+&amp;#13;
+   Selectors are written out in full. The Service Portal Sass&amp;#13;
+   compiler does not support parent selector concatenation.&amp;#13;
+&amp;#13;
+   Set in the same language as the proposal page this list&amp;#13;
+   leads into: hairlines carry the structure, cards are used&amp;#13;
+   only where something genuinely is a separate object, labels&amp;#13;
+   are sentence case, and colour appears in three places — the&amp;#13;
+   score band, the review state, and the one blue used for&amp;#13;
+   anything clickable.&amp;#13;
+&amp;#13;
+   THE ROW&amp;#13;
+&amp;#13;
+   Five columns, and the one that matters most is the third:&amp;#13;
+   whose turn is it. A reviewer scanning this list is not&amp;#13;
+   asking "what state is this in" so much as "is this mine to&amp;#13;
+   do". So the row says "Your turn" or "With Panel B" in plain&amp;#13;
+   words, and a row that is somebody else's is set back a shade&amp;#13;
+   rather than shouting at the same volume.&amp;#13;
+&amp;#13;
+   TYPE&amp;#13;
+     title     24  700  -0.022em&amp;#13;
+     row ref   15  600  tabular&amp;#13;
+     row value 15  400&amp;#13;
+     label     14  400  sentence case, never capitals&amp;#13;
+     meta      13  400&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+/* ---------- typeface ---------- */&amp;#13;
+&amp;#13;
+@font-face {&amp;#13;
+  font-family: "Outfit";&amp;#13;
+  font-style: normal;&amp;#13;
+  font-weight: 400;&amp;#13;
+  font-display: swap;&amp;#13;
+  src: url("/x_enno_gatenow_outfit_regular.woff2") format("woff2");&amp;#13;
+}&amp;#13;
+&amp;#13;
+@font-face {&amp;#13;
+  font-family: "Outfit";&amp;#13;
+  font-style: normal;&amp;#13;
+  font-weight: 500;&amp;#13;
+  font-display: swap;&amp;#13;
+  src: url("/x_enno_gatenow_outfit_medium.woff2") format("woff2");&amp;#13;
+}&amp;#13;
+&amp;#13;
+@font-face {&amp;#13;
+  font-family: "Outfit";&amp;#13;
+  font-style: normal;&amp;#13;
+  font-weight: 600;&amp;#13;
+  font-display: swap;&amp;#13;
+  src: url("/x_enno_gatenow_outfit_semibold.woff2") format("woff2");&amp;#13;
+}&amp;#13;
+&amp;#13;
+@font-face {&amp;#13;
+  font-family: "Outfit";&amp;#13;
+  font-style: normal;&amp;#13;
+  font-weight: 700;&amp;#13;
+  font-display: swap;&amp;#13;
+  src: url("/x_enno_gatenow_outfit_bold.woff2") format("woff2");&amp;#13;
+}&amp;#13;
+&amp;#13;
+&amp;#13;
+/* ---------- palette ----------&amp;#13;
+   The same six values and three signals as the proposal page,&amp;#13;
+   so a reviewer moving from a list into a proposal stays in&amp;#13;
+   one product.&amp;#13;
+   ------------------------------------------------------- */&amp;#13;
+&amp;#13;
+$ink:   #0a2540;&amp;#13;
+$ink-2: #3a4a60;&amp;#13;
+$ink-3: #6b7a90;&amp;#13;
+$ink-4: #98a2b3;&amp;#13;
+&amp;#13;
+$rule:   #e4e9f0;&amp;#13;
+$rule-2: #f0f3f8;&amp;#13;
+$wash:   #f7f9fc;&amp;#13;
+$paper:  #ffffff;&amp;#13;
+$ground: #f4f6fb;&amp;#13;
+&amp;#13;
+$blue:    #1560e0;&amp;#13;
+$blue-dk: #0f4cbb;&amp;#13;
+$blue-1:  #eef4fe;&amp;#13;
+&amp;#13;
+$high: #1f7a5c;&amp;#13;
+$mid:  #9a6b18;&amp;#13;
+$low:  #ab3243;&amp;#13;
+&amp;#13;
+$ui:    "Outfit", "Segoe UI", Roboto, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;&amp;#13;
+$serif: "Iowan Old Style", "Palatino Linotype", Palatino, Charter, Georgia, "Times New Roman", serif;&amp;#13;
+&amp;#13;
+$ease: cubic-bezier(0.32, 0.72, 0, 1);&amp;#13;
+&amp;#13;
+/* =========================================================&amp;#13;
+   FRAME&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+.panel,&amp;#13;
+.panel-body,&amp;#13;
+.sp-widget {&amp;#13;
+  overflow: visible !important;&amp;#13;
+  margin: 0 !important;&amp;#13;
+  padding: 0 !important;&amp;#13;
+  background: transparent !important;&amp;#13;
+  border: 0 !important;&amp;#13;
+  box-shadow: none !important;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gn-shell {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: stretch;&amp;#13;
+  min-height: 100vh;&amp;#13;
+  background: $ground;&amp;#13;
+}&amp;#13;
+&amp;#13;
+/* min-width: 0 is load-bearing. Without it a flex child&amp;#13;
+   refuses to shrink below its own content width and slides&amp;#13;
+   under the rail instead of narrowing. */&amp;#13;
+.rq {&amp;#13;
+  flex: 1;&amp;#13;
+  min-width: 0;&amp;#13;
+  min-height: 100vh;&amp;#13;
+  background: $paper;&amp;#13;
+  font-family: $ui;&amp;#13;
+  color: $ink;&amp;#13;
+  -webkit-font-smoothing: antialiased;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq *,&amp;#13;
+.rq *::before,&amp;#13;
+.rq *::after { box-sizing: border-box; }&amp;#13;
+&amp;#13;
+.rq-stale {&amp;#13;
+  padding: 13px 28px;&amp;#13;
+  border-bottom: 1px solid #f0e0c0;&amp;#13;
+  background: #fdf6e9;&amp;#13;
+  font-size: 14px;&amp;#13;
+  line-height: 1.55;&amp;#13;
+  color: #7d5713;&amp;#13;
+}&amp;#13;
+&amp;#13;
+&amp;#13;
+/* =========================================================&amp;#13;
+   BAR&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+.rq-bar {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: flex-end;&amp;#13;
+  justify-content: space-between;&amp;#13;
+  flex-wrap: wrap;&amp;#13;
+  gap: 18px 28px;&amp;#13;
+  padding: 26px 28px 20px;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-bar__lead { min-width: 0; }&amp;#13;
+&amp;#13;
+.rq .rq-bar__title {&amp;#13;
+  margin: 0;&amp;#13;
+  font-size: 24px;&amp;#13;
+  font-weight: 700;&amp;#13;
+  letter-spacing: -0.022em;&amp;#13;
+  color: $ink;&amp;#13;
+}&amp;#13;
+&amp;#13;
+/* the subtitle is a sentence about this reviewer's actual&amp;#13;
+   load, not a description of the page. "12 reviews, 3 waiting&amp;#13;
+   on your group" is worth reading; "All your assigned reviews"&amp;#13;
+   is not. */&amp;#13;
+.rq .rq-bar__sub {&amp;#13;
+  margin: 7px 0 0;&amp;#13;
+  font-size: 15px;&amp;#13;
+  color: $ink-3;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-bar__tools {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  gap: 14px;&amp;#13;
+  flex-wrap: wrap;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-find {&amp;#13;
+  position: relative;&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  width: 320px;&amp;#13;
+  max-width: 100%;&amp;#13;
+  margin: 0;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-find input {&amp;#13;
+  width: 100%;&amp;#13;
+  height: 38px;&amp;#13;
+  padding: 0 34px 0 14px;&amp;#13;
+  border: 1px solid $rule;&amp;#13;
+  border-radius: 8px;&amp;#13;
+  background: $paper;&amp;#13;
+  font-family: inherit;&amp;#13;
+  font-size: 14.5px;&amp;#13;
+  color: $ink;&amp;#13;
+  transition: border-color 0.2s $ease, box-shadow 0.2s $ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-find input:focus {&amp;#13;
+  outline: 0;&amp;#13;
+  border-color: rgba(21, 96, 224, 0.5);&amp;#13;
+  box-shadow: 0 0 0 3px $blue-1;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-find input::placeholder { color: $ink-4; }&amp;#13;
+&amp;#13;
+.rq-find__x {&amp;#13;
+  position: absolute;&amp;#13;
+  right: 10px;&amp;#13;
+  width: 20px;&amp;#13;
+  height: 20px;&amp;#13;
+  padding: 0;&amp;#13;
+  border: 0;&amp;#13;
+  border-radius: 50%;&amp;#13;
+  background: transparent;&amp;#13;
+  color: $ink-4;&amp;#13;
+  font-size: 17px;&amp;#13;
+  line-height: 1;&amp;#13;
+  cursor: pointer;&amp;#13;
+  transition: color 0.2s $ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-find__x:hover { color: $ink; }&amp;#13;
+&amp;#13;
+.rq-pick {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  gap: 9px;&amp;#13;
+  margin: 0;&amp;#13;
+  min-width: 0;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-pick__l {&amp;#13;
+  font-size: 14px;&amp;#13;
+  font-weight: 400;&amp;#13;
+  color: $ink-4;&amp;#13;
+  white-space: nowrap;&amp;#13;
+}&amp;#13;
+&amp;#13;
+/* a native select with no custom arrow. A bespoke dropdown has&amp;#13;
+   to reimplement keyboard handling, typeahead and the mobile&amp;#13;
+   picker, and does none of them as well as the browser. */&amp;#13;
+.rq-pick select {&amp;#13;
+  height: 38px;&amp;#13;
+  max-width: 230px;&amp;#13;
+  padding: 0 10px;&amp;#13;
+  border: 1px solid $rule;&amp;#13;
+  border-radius: 8px;&amp;#13;
+  background: $paper;&amp;#13;
+  font-family: inherit;&amp;#13;
+  font-size: 14.5px;&amp;#13;
+  color: $ink;&amp;#13;
+  cursor: pointer;&amp;#13;
+  transition: border-color 0.2s $ease, box-shadow 0.2s $ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-pick select:focus {&amp;#13;
+  outline: 0;&amp;#13;
+  border-color: rgba(21, 96, 224, 0.5);&amp;#13;
+  box-shadow: 0 0 0 3px $blue-1;&amp;#13;
+}&amp;#13;
+&amp;#13;
+&amp;#13;
+/* =========================================================&amp;#13;
+   FILTERS&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+.rq-filters {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  justify-content: space-between;&amp;#13;
+  flex-wrap: wrap;&amp;#13;
+  gap: 14px 28px;&amp;#13;
+  padding: 0 28px 16px;&amp;#13;
+  border-bottom: 1px solid $rule;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-chips {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  flex-wrap: wrap;&amp;#13;
+  gap: 4px;&amp;#13;
+}&amp;#13;
+&amp;#13;
+/* words with a count, not filled pills. Seven filled pills in&amp;#13;
+   a row is seven things competing to be pressed. */&amp;#13;
+.rq-chip {&amp;#13;
+  display: inline-flex;&amp;#13;
+  align-items: baseline;&amp;#13;
+  gap: 7px;&amp;#13;
+  padding: 7px 11px;&amp;#13;
+  border: 0;&amp;#13;
+  border-radius: 7px;&amp;#13;
+  background: transparent;&amp;#13;
+  font-family: inherit;&amp;#13;
+  font-size: 14.5px;&amp;#13;
+  font-weight: 400;&amp;#13;
+  color: $ink-3;&amp;#13;
+  cursor: pointer;&amp;#13;
+  transition: background 0.18s $ease, color 0.18s $ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-chip:hover {&amp;#13;
+  background: $wash;&amp;#13;
+  color: $ink;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-chip.is-on {&amp;#13;
+  background: $ink;&amp;#13;
+  color: $paper;&amp;#13;
+  font-weight: 500;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-chip__n {&amp;#13;
+  font-size: 13px;&amp;#13;
+  font-variant-numeric: tabular-nums;&amp;#13;
+  color: $ink-4;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-chip.is-on .rq-chip__n { color: rgba(255, 255, 255, 0.64); }&amp;#13;
+&amp;#13;
+.rq-more {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  gap: 18px;&amp;#13;
+  flex-wrap: wrap;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-reset {&amp;#13;
+  padding: 0;&amp;#13;
+  border: 0;&amp;#13;
+  background: transparent;&amp;#13;
+  font-family: inherit;&amp;#13;
+  font-size: 14px;&amp;#13;
+  color: $blue-dk;&amp;#13;
+  cursor: pointer;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-reset:hover { text-decoration: underline; }&amp;#13;
+&amp;#13;
+&amp;#13;
+/* =========================================================&amp;#13;
+   THE LIST&amp;#13;
+&amp;#13;
+   Rows divided by hairlines, not floated as cards. Fifteen&amp;#13;
+   cards with fifteen shadows is fifteen objects; fifteen rows&amp;#13;
+   in a ruled list is one list.&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+.rq-head,&amp;#13;
+.rq-row {&amp;#13;
+  display: grid;&amp;#13;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.2fr) 190px 116px 140px;&amp;#13;
+  align-items: center;&amp;#13;
+  gap: 24px;&amp;#13;
+  padding: 0 28px;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-head {&amp;#13;
+  padding-top: 14px;&amp;#13;
+  padding-bottom: 12px;&amp;#13;
+  border-bottom: 1px solid $rule;&amp;#13;
+  font-size: 13.5px;&amp;#13;
+  color: $ink-4;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-row {&amp;#13;
+  padding-top: 15px;&amp;#13;
+  padding-bottom: 15px;&amp;#13;
+  border-bottom: 1px solid $rule-2;&amp;#13;
+  cursor: pointer;&amp;#13;
+  transition: background 0.16s $ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-row:hover { background: $wash; }&amp;#13;
+&amp;#13;
+.rq-row:focus-visible {&amp;#13;
+  outline: 2px solid $blue;&amp;#13;
+  outline-offset: -2px;&amp;#13;
+}&amp;#13;
+&amp;#13;
+/* a row held by another group is set back rather than hidden.&amp;#13;
+   Readable, and plainly not the reader's move. */&amp;#13;
+.rq-row.is-theirs { background: #fcfdfe; }&amp;#13;
+&amp;#13;
+.rq-row.is-theirs .rq-num,&amp;#13;
+.rq-row.is-theirs .rq-prog { color: $ink-2; }&amp;#13;
+&amp;#13;
+/* late is carried by the deadline and a hairline at the edge,&amp;#13;
+   not by tinting the whole row. A list where four rows are&amp;#13;
+   pink stops being a list. */&amp;#13;
+.rq-row.is-late { box-shadow: inset 3px 0 0 $low; }&amp;#13;
+&amp;#13;
+.rq-cell { min-width: 0; }&amp;#13;
+&amp;#13;
+.rq-num {&amp;#13;
+  display: block;&amp;#13;
+  font-size: 15px;&amp;#13;
+  font-weight: 600;&amp;#13;
+  letter-spacing: -0.008em;&amp;#13;
+  font-variant-numeric: tabular-nums;&amp;#13;
+  color: $ink;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-who {&amp;#13;
+  display: block;&amp;#13;
+  margin-top: 3px;&amp;#13;
+  font-size: 13.5px;&amp;#13;
+  color: $ink-3;&amp;#13;
+  overflow: hidden;&amp;#13;
+  text-overflow: ellipsis;&amp;#13;
+  white-space: nowrap;&amp;#13;
+}&amp;#13;
+&amp;#13;
+/* said rather than left blank, so nobody wonders whether it&amp;#13;
+   failed to load */&amp;#13;
+.rq-who--none,&amp;#13;
+.rq-prog--none {&amp;#13;
+  font-style: italic;&amp;#13;
+  color: $ink-4;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-prog {&amp;#13;
+  display: block;&amp;#13;
+  font-size: 15px;&amp;#13;
+  font-weight: 400;&amp;#13;
+  color: $ink;&amp;#13;
+  overflow: hidden;&amp;#13;
+  text-overflow: ellipsis;&amp;#13;
+  white-space: nowrap;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-org {&amp;#13;
+  display: block;&amp;#13;
+  margin-top: 3px;&amp;#13;
+  font-size: 13px;&amp;#13;
+  color: $ink-4;&amp;#13;
+  overflow: hidden;&amp;#13;
+  text-overflow: ellipsis;&amp;#13;
+  white-space: nowrap;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-state {&amp;#13;
+  display: inline-flex;&amp;#13;
+  align-items: center;&amp;#13;
+  gap: 7px;&amp;#13;
+  font-size: 14px;&amp;#13;
+  color: $ink-2;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-state::before {&amp;#13;
+  content: "";&amp;#13;
+  width: 7px;&amp;#13;
+  height: 7px;&amp;#13;
+  flex-shrink: 0;&amp;#13;
+  border-radius: 50%;&amp;#13;
+  background: currentColor;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-state--waiting { color: $mid; }&amp;#13;
+.rq-state--open    { color: $blue-dk; }&amp;#13;
+.rq-state--done    { color: $high; }&amp;#13;
+.rq-state--flag    { color: $low; }&amp;#13;
+.rq-state--stood   { color: $ink-4; }&amp;#13;
+&amp;#13;
+/* whose move it is, in plain words. The third column is the&amp;#13;
+   one a reviewer scans first, so it answers the question they&amp;#13;
+   are actually asking. */&amp;#13;
+.rq-turn {&amp;#13;
+  display: block;&amp;#13;
+  margin-top: 4px;&amp;#13;
+  font-size: 13px;&amp;#13;
+  font-weight: 500;&amp;#13;
+  color: $blue-dk;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-turn--other {&amp;#13;
+  font-weight: 400;&amp;#13;
+  color: $ink-4;&amp;#13;
+  overflow: hidden;&amp;#13;
+  text-overflow: ellipsis;&amp;#13;
+  white-space: nowrap;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-score {&amp;#13;
+  display: inline-flex;&amp;#13;
+  align-items: baseline;&amp;#13;
+  gap: 3px;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-score__n {&amp;#13;
+  font-size: 17px;&amp;#13;
+  font-weight: 600;&amp;#13;
+  letter-spacing: -0.014em;&amp;#13;
+  font-variant-numeric: tabular-nums;&amp;#13;
+  color: $ink;&amp;#13;
+}&amp;#13;
+&amp;#13;
+/* the denominator, always. A bare 7 invites the question seven&amp;#13;
+   out of what. */&amp;#13;
+.rq-score__d {&amp;#13;
+  font-size: 13px;&amp;#13;
+  color: $ink-4;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-score--none {&amp;#13;
+  font-size: 14px;&amp;#13;
+  font-style: italic;&amp;#13;
+  color: $ink-4;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-due {&amp;#13;
+  font-size: 14px;&amp;#13;
+  font-variant-numeric: tabular-nums;&amp;#13;
+  color: $ink-2;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-due--late { color: $low; font-weight: 500; }&amp;#13;
+.rq-due--soon { color: $mid; font-weight: 500; }&amp;#13;
+.rq-due--ok   { color: $ink-2; }&amp;#13;
+.rq-due--none { color: $ink-4; font-style: italic; }&amp;#13;
+&amp;#13;
+&amp;#13;
+/* =========================================================&amp;#13;
+   PAGER&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+.rq-pager {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  justify-content: space-between;&amp;#13;
+  flex-wrap: wrap;&amp;#13;
+  gap: 14px 24px;&amp;#13;
+  padding: 20px 28px 40px;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq .rq-pager__at {&amp;#13;
+  margin: 0;&amp;#13;
+  font-size: 14px;&amp;#13;
+  font-variant-numeric: tabular-nums;&amp;#13;
+  color: $ink-4;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-pager__go {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  gap: 4px;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-pg,&amp;#13;
+.rq-step {&amp;#13;
+  height: 34px;&amp;#13;
+  min-width: 34px;&amp;#13;
+  padding: 0 11px;&amp;#13;
+  border: 1px solid transparent;&amp;#13;
+  border-radius: 7px;&amp;#13;
+  background: transparent;&amp;#13;
+  font-family: inherit;&amp;#13;
+  font-size: 14px;&amp;#13;
+  font-variant-numeric: tabular-nums;&amp;#13;
+  color: $ink-2;&amp;#13;
+  cursor: pointer;&amp;#13;
+  transition: background 0.18s $ease, color 0.18s $ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-pg:hover,&amp;#13;
+.rq-step:hover {&amp;#13;
+  background: $wash;&amp;#13;
+  color: $ink;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-pg.is-on {&amp;#13;
+  background: $ink;&amp;#13;
+  color: $paper;&amp;#13;
+  font-weight: 500;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-pg.is-gap {&amp;#13;
+  min-width: 20px;&amp;#13;
+  padding: 0;&amp;#13;
+  background: transparent;&amp;#13;
+  color: $ink-4;&amp;#13;
+  cursor: default;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-pg:disabled,&amp;#13;
+.rq-step:disabled {&amp;#13;
+  opacity: 0.35;&amp;#13;
+  background: transparent;&amp;#13;
+  cursor: default;&amp;#13;
+}&amp;#13;
+&amp;#13;
+&amp;#13;
+/* =========================================================&amp;#13;
+   EMPTY&amp;#13;
+&amp;#13;
+   An empty screen is a place to say what happens next, not a&amp;#13;
+   place for a shrug and an icon.&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+.rq-empty {&amp;#13;
+  max-width: 52ch;&amp;#13;
+  padding: 72px 28px;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq .rq-empty__h {&amp;#13;
+  margin: 0;&amp;#13;
+  font-size: 20px;&amp;#13;
+  font-weight: 600;&amp;#13;
+  letter-spacing: -0.018em;&amp;#13;
+  color: $ink;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq .rq-empty__p {&amp;#13;
+  margin: 12px 0 0;&amp;#13;
+  font-family: $serif;&amp;#13;
+  font-size: 16.5px;&amp;#13;
+  line-height: 1.65;&amp;#13;
+  color: #253449;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-btn {&amp;#13;
+  height: 36px;&amp;#13;
+  margin-top: 20px;&amp;#13;
+  padding: 0 16px;&amp;#13;
+  border: 1px solid $rule;&amp;#13;
+  border-radius: 8px;&amp;#13;
+  background: $paper;&amp;#13;
+  font-family: inherit;&amp;#13;
+  font-size: 14px;&amp;#13;
+  font-weight: 500;&amp;#13;
+  color: $ink-2;&amp;#13;
+  cursor: pointer;&amp;#13;
+  transition: border-color 0.2s $ease, color 0.2s $ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-btn:hover {&amp;#13;
+  border-color: $ink-4;&amp;#13;
+  color: $ink;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.rq-btn:focus-visible,&amp;#13;
+.rq-chip:focus-visible,&amp;#13;
+.rq-pg:focus-visible,&amp;#13;
+.rq-step:focus-visible,&amp;#13;
+.rq-reset:focus-visible {&amp;#13;
+  outline: 2px solid $blue;&amp;#13;
+  outline-offset: 2px;&amp;#13;
+}&amp;#13;
+&amp;#13;
+&amp;#13;
+/* =========================================================&amp;#13;
+   MOTION&amp;#13;
+&amp;#13;
+   One fade at load and nothing else that moves on its own.&amp;#13;
+   The transitions above answer a hover, a focus or a press,&amp;#13;
+   which is the only motion a list has any use for.&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+@media (prefers-reduced-motion: no-preference) {&amp;#13;
+&amp;#13;
+  @keyframes rqIn {&amp;#13;
+    from { opacity: 0; }&amp;#13;
+    to   { opacity: 1; }&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .rq-list { animation: rqIn 0.3s $ease; }&amp;#13;
+}&amp;#13;
+&amp;#13;
+&amp;#13;
+/* =========================================================&amp;#13;
+   RESPONSIVE&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+@media (max-width: 1200px) {&amp;#13;
+&amp;#13;
+  .rq-head,&amp;#13;
+  .rq-row {&amp;#13;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 168px 100px 120px;&amp;#13;
+    gap: 18px;&amp;#13;
+    padding-left: 22px;&amp;#13;
+    padding-right: 22px;&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .rq-bar,&amp;#13;
+  .rq-filters,&amp;#13;
+  .rq-pager,&amp;#13;
+  .rq-empty {&amp;#13;
+    padding-left: 22px;&amp;#13;
+    padding-right: 22px;&amp;#13;
+  }&amp;#13;
+}&amp;#13;
+&amp;#13;
+@media (max-width: 960px) {&amp;#13;
+&amp;#13;
+  /* the header row goes first. It is a convenience at full&amp;#13;
+     width and a lie at reduced width, because the columns it&amp;#13;
+     labels no longer line up beneath it. */&amp;#13;
+  .rq-head { display: none; }&amp;#13;
+&amp;#13;
+  .rq-row {&amp;#13;
+    grid-template-columns: minmax(0, 1fr) 140px;&amp;#13;
+    gap: 10px 20px;&amp;#13;
+    padding-top: 18px;&amp;#13;
+    padding-bottom: 18px;&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  /* reference and program take the wide side, status spans,&amp;#13;
+     score and deadline pair off on the last line */&amp;#13;
+  .rq-cell--ref   { grid-column: 1 / 2; }&amp;#13;
+  .rq-cell--prog  { grid-column: 1 / -1; }&amp;#13;
+  .rq-cell--state { grid-column: 1 / -1; }&amp;#13;
+  .rq-cell--score { grid-column: 1 / 2; }&amp;#13;
+&amp;#13;
+  .rq-cell--due { text-align: right; }&amp;#13;
+}&amp;#13;
+&amp;#13;
+@media (max-width: 640px) {&amp;#13;
+&amp;#13;
+  .rq-bar,&amp;#13;
+  .rq-filters,&amp;#13;
+  .rq-pager,&amp;#13;
+  .rq-empty,&amp;#13;
+  .rq-row {&amp;#13;
+    padding-left: 16px;&amp;#13;
+    padding-right: 16px;&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .rq .rq-bar__title { font-size: 21px; }&amp;#13;
+&amp;#13;
+  .rq-bar__tools { width: 100%; }&amp;#13;
+&amp;#13;
+  .rq-find { width: 100%; }&amp;#13;
+&amp;#13;
+  .rq-pick { width: 100%; }&amp;#13;
+&amp;#13;
+  .rq-pick select {&amp;#13;
+    flex: 1;&amp;#13;
+    max-width: none;&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .rq-chips {&amp;#13;
+    flex-wrap: nowrap;&amp;#13;
+    overflow-x: auto;&amp;#13;
+    -webkit-overflow-scrolling: touch;&amp;#13;
+    padding-bottom: 2px;&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .rq-chip { flex-shrink: 0; }&amp;#13;
+&amp;#13;
+  .rq-more {&amp;#13;
+    align-items: stretch;&amp;#13;
+    flex-direction: column;&amp;#13;
+    width: 100%;&amp;#13;
+    gap: 12px;&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .rq-row {&amp;#13;
+    grid-template-columns: minmax(0, 1fr);&amp;#13;
+    gap: 8px;&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .rq-cell--due { text-align: left; }&amp;#13;
+}&amp;#13;
+&amp;#13;
+@media (prefers-reduced-motion: reduce) {&amp;#13;
+  .rq,&amp;#13;
+  .rq * {&amp;#13;
+    transition: none;&amp;#13;
+    animation: none;&amp;#13;
+  }&amp;#13;
+}&lt;/css&gt;&lt;data_table&gt;sp_instance&lt;/data_table&gt;&lt;demo_data/&gt;&lt;description/&gt;&lt;docs/&gt;&lt;field_list/&gt;&lt;has_preview&gt;false&lt;/has_preview&gt;&lt;id&gt;review_proposals&lt;/id&gt;&lt;internal&gt;false&lt;/internal&gt;&lt;link&gt;&lt;![CDATA[function link(scope, element, attrs, controller) {
+  
+}]]&gt;&lt;/link&gt;&lt;name&gt;Review Proposals&lt;/name&gt;&lt;option_schema/&gt;&lt;public&gt;false&lt;/public&gt;&lt;roles&gt;x_enno_gatenow.grant_review_user&lt;/roles&gt;&lt;script&gt;&lt;![CDATA[(function () {
+
+  /* =========================================================
+     GATENOW · MY REVIEWS
+     Service Portal widget · Server script
+
+     Every review assigned to any of the reviewer's groups,
+     settled or not, with the facets needed to cut it down.
+
+     ── WHO SEES WHAT ─────────────────────────────────────────
+
+     A review is assigned to one or more groups through the
+     reviewer field, and one of them holds it at a time through
+     review_group. Two different questions:
+
+       reviewer     membership of any of these means you can
+                    SEE the review
+       review_group membership of this one means it is your
+                    turn to act
+
+     The query is on reviewer, and the turn is worked out per
+     row. Querying review_group alone, as an earlier version
+     did, hides a proposal from the other assigned groups until
+     it reaches them — which is the opposite of what a queue is
+     for.
+     ========================================================= */
+
+  var REVIEW    = 'x_enno_gatenow_grant_review';
+  var PROGRAM   = 'x_enno_gatenow_grant_program';
+  var APPLICANT = 'x_enno_gatenow_service_applicants';
+
+  var me = gs.getUserID();
+
+  data.shape   = 'reviewqueue-v2';
+  data.reviews = [];
+
+  if (typeof input === 'undefined' || input === null) input = {};
+
+  function opt(name, fallback) {
+    var v = options[name];
+    return (v === null || v === undefined || v === '') ? fallback : v.toString();
+  }
+
+  data.detailPage = opt('detail_page', 'review_proposal_detail_page');
+  data.pageSize   = parseInt(opt('page_size', '15'), 10) || 15;
+  data.rail       = $sp.getWidget(opt('rail_widget', 'gatenow_reviewer_rail'));
+
+
+  /* ============================================================
+     HELPERS
+     ============================================================ */
+
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  function fmtDate(raw) {
+    if (!raw || raw === 'null') return '';
+    var d = String(raw).split(' ')[0].split('-');
+    if (d.length !== 3) return String(raw).split(' ')[0];
+    return parseInt(d[2], 10) + ' ' + MONTHS[parseInt(d[1], 10) - 1] + ' ' + d[0];
+  }
+
+  var now = new GlideDateTime();
+
+  function daysFromNow(raw) {
+    if (!raw) return null;
+    try {
+      var g = new GlideDateTime(String(raw).length === 10 ? raw + ' 00:00:00' : raw);
+      return Math.round((g.getNumericValue() - now.getNumericValue()) / 86400000);
+    } catch (e) { return null; }
+  }
+
+  function r1(n) { return Math.round(n * 10) / 10; }
+
+
+  /* ============================================================
+     WHO IS ASKING
+     ============================================================ */
+
+  var groups = [];
+
+  try {
+    var gm = new GlideRecordSecure('sys_user_grmember');
+    gm.addQuery('user', me);
+    gm.query();
+    while (gm.next()) groups.push(gm.getValue('group'));
+  } catch (e) {
+    gs.warn('[MyReviews] group membership unreadable: ' + e.message);
+  }
+
+  data.hasGroups = groups.length &gt; 0;
+
+  function mine(sysId) {
+    return !!sysId &amp;&amp; groups.indexOf('' + sysId) !== -1;
+  }
+
+
+  /* ============================================================
+     STATUS
+
+     The five values on the form's choice list. Four tones plus
+     one alarm: a tone names a kind of state, the status label
+     carries which particular one it is.
+     ============================================================ */
+
+  var TONES = {
+    'Review pending'      : 'waiting',
+    'Review in progress'  : 'open',
+    'Review completed'    : 'done',
+    'Declined by Reviewer': 'stood',
+    'Escalated'           : 'flag'
+  };
+
+  function toneOf(s) { return TONES[s] || 'waiting'; }
+
+  function isOpen(s) {
+    return s !== 'Review completed' &amp;&amp; s !== 'Declined by Reviewer';
+  }
+
+
+  /* ============================================================
+     THE ROWS
+     ============================================================ */
+
+  var counts = { all: 0, waiting: 0, open: 0, done: 0, stood: 0, flag: 0,
+                 turn: 0, late: 0 };
+
+  var programCache   = {};
+  var applicantCache = {};
+  var programSeen    = {};
+
+  function program(sysId) {
+    if (!sysId) return null;
+    if (programCache[sysId] !== undefined) return programCache[sysId];
+    var out = null;
+    try {
+      var pg = new GlideRecordSecure(PROGRAM);
+      if (pg.get(sysId)) {
+        out = {
+          name    : pg.getDisplayValue('program_name') || '',
+          number  : pg.getValue('number') || '',
+          category: pg.getDisplayValue('category') || ''
+        };
+      }
+    } catch (e) { /* leave null; the row says so */ }
+    programCache[sysId] = out;
+    return out;
+  }
+
+  function applicant(sysId) {
+    if (!sysId) return null;
+    if (applicantCache[sysId] !== undefined) return applicantCache[sysId];
+    var out = null;
+    try {
+      var ap = new GlideRecordSecure(APPLICANT);
+      if (ap.get(sysId)) {
+        out = {
+          name  : ((ap.getValue('first_name') || '') + ' ' +
+                   (ap.getValue('last_name') || '')).trim(),
+          number: ap.getValue('number') || '',
+          org   : ap.getValue('organization') || ''
+        };
+      }
+    } catch (e) { /* as above */ }
+    applicantCache[sysId] = out;
+    return out;
+  }
+
+  if (groups.length) {
+
+    var gr = new GlideRecordSecure(REVIEW);
+
+    /* reviewer is a list of groups, so the match is CONTAINS
+       per group, OR'd together. addOrCondition is called on the
+       QueryCondition the first addQuery returned, which keeps
+       the whole OR bracketed as one condition rather than
+       leaking across the rest of the query. */
+    var hasReviewer = false;
+    try { hasReviewer = gr.isValidField('reviewer'); } catch (e) {}
+
+    if (hasReviewer) {
+      var qc = gr.addQuery('reviewer', 'CONTAINS', groups[0]);
+      for (var q = 1; q &lt; groups.length; q++) {
+        qc.addOrCondition('reviewer', 'CONTAINS', groups[q]);
+      }
+    } else {
+      gr.addQuery('review_group', 'IN', groups.join(','));
+      gs.info('[MyReviews] no reviewer field, falling back to review_group');
+    }
+
+    gr.orderBy('review_deadline');
+    gr.query();
+
+    while (gr.next()) {
+
+      var status = gr.getDisplayValue('status') || gs.getMessage('Unknown');
+      var tone   = toneOf(status);
+      var open   = isOpen(status);
+
+      var holderId = gr.getValue('review_group');
+      var myTurn   = mine(holderId);
+
+      var dlRaw = gr.getValue('review_deadline') || '';
+      var days  = daysFromNow(dlRaw);
+
+      /* only work that is actually with one of my groups counts
+         as late for me. A review sitting past its deadline in
+         somebody else's queue is their problem, and marking it
+         red here would be telling me to act on something I
+         cannot act on. */
+      var late = (open &amp;&amp; myTurn &amp;&amp; days !== null &amp;&amp; days &lt; 0);
+
+      var bucket;
+      if (!open || days === null) bucket = 'none';
+      else if (days &lt; 0)          bucket = 'late';
+      else if (days &lt;= 7)         bucket = 'week';
+      else                        bucket = 'later';
+
+      var due;
+      if (!dlRaw)        due = { text: 'No deadline', tone: 'none' };
+      else if (!open)    due = { text: fmtDate(dlRaw), tone: 'none' };
+      else if (!myTurn)  due = { text: fmtDate(dlRaw), tone: 'none' };
+      else if (days &lt; 0) {
+        var n = Math.abs(days);
+        due = { text: n + (n === 1 ? ' day late' : ' days late'), tone: 'late' };
+      }
+      else if (days === 0) due = { text: 'Due today', tone: 'soon' };
+      else if (days &lt;= 7)  due = { text: days + (days === 1 ? ' day left' : ' days left'), tone: 'soon' };
+      else                 due = { text: fmtDate(dlRaw), tone: 'ok' };
+
+      var scoreRaw = gr.getValue('score');
+      var score    = (scoreRaw === '' || scoreRaw === null) ? null : parseFloat(scoreRaw);
+      if (score === null || isNaN(score)) score = null;
+
+      var pgmId = gr.getValue('program');
+      var pgm   = program(pgmId);
+      var apl   = applicant(gr.getValue('applicant'));
+
+      counts.all++;
+      if (counts[tone] !== undefined) counts[tone]++;
+      if (open &amp;&amp; myTurn) counts.turn++;
+      if (late) counts.late++;
+
+      if (pgmId &amp;&amp; pgm &amp;&amp; !programSeen[pgmId]) {
+        programSeen[pgmId] = { key: pgmId, label: pgm.name || pgm.number, count: 0 };
+      }
+      if (pgmId &amp;&amp; programSeen[pgmId]) programSeen[pgmId].count++;
+
+      var row = {
+        sys_id: gr.getUniqueValue(),
+        number: gr.getValue('number') || '',
+
+        status: status,
+        tone  : tone,
+        open  : open,
+
+        myTurn  : myTurn,
+        holder  : gr.getDisplayValue('review_group') || '',
+
+        applicant: apl ? apl.name : '',
+        org      : apl ? apl.org : '',
+
+        program_id: pgmId || '',
+        program   : pgm ? pgm.name : '',
+        category  : pgm ? pgm.category : '',
+
+        deadline    : fmtDate(dlRaw),
+        deadlineSort: days === null ? 999999 : days,
+        dueText : due.text,
+        dueTone : due.tone,
+        bucket  : bucket,
+        late    : late,
+
+        score    : score,
+        scoreText: score === null ? '' : r1(score) + '',
+        scoreSort: score === null ? -1 : score,
+
+        updatedSort: gr.getValue('sys_updated_on') || '',
+        updated    : fmtDate(gr.getValue('sys_updated_on'))
+      };
+
+      row.search = (row.number + ' ' + row.applicant + ' ' + row.org + ' ' +
+                    row.program + ' ' + row.status + ' ' + row.holder).toLowerCase();
+
+      data.reviews.push(row);
+    }
+  }
+
+
+  /* ============================================================
+     FACETS
+
+     Built from the rows rather than a choice table. A program
+     the reviewer has no work for should not appear in their
+     filter, and one that exists only in their data should.
+     ============================================================ */
+
+  var progList = [];
+  for (var k in programSeen) {
+    if (programSeen.hasOwnProperty(k)) progList.push(programSeen[k]);
+  }
+  progList.sort(function (a, b) {
+    return (a.label || '').toLowerCase() &lt; (b.label || '').toLowerCase() ? -1 : 1;
+  });
+
+  data.programs = progList;
+  data.counts   = counts;
+
+})();]]&gt;&lt;/script&gt;&lt;servicenow&gt;false&lt;/servicenow&gt;&lt;sys_class_name&gt;sp_widget&lt;/sys_class_name&gt;&lt;sys_created_by&gt;umar.farooq&lt;/sys_created_by&gt;&lt;sys_created_on&gt;2026-09-15 10:38:05&lt;/sys_created_on&gt;&lt;sys_id&gt;5841bd5293974710d444c9b877373c1a&lt;/sys_id&gt;&lt;sys_mod_count&gt;1&lt;/sys_mod_count&gt;&lt;sys_name&gt;Review Proposals&lt;/sys_name&gt;&lt;sys_package display_value="GateNow" source="x_enno_gatenow"&gt;eabeaf98eb033a10520dfbdffdc0cd51&lt;/sys_package&gt;&lt;sys_policy/&gt;&lt;sys_scope display_value="GateNow"&gt;eabeaf98eb033a10520dfbdffdc0cd51&lt;/sys_scope&gt;&lt;sys_update_name&gt;sp_widget_5841bd5293974710d444c9b877373c1a&lt;/sys_update_name&gt;&lt;sys_updated_by&gt;umar.farooq&lt;/sys_updated_by&gt;&lt;sys_updated_on&gt;2026-09-15 10:40:29&lt;/sys_updated_on&gt;&lt;template&gt;&lt;![CDATA[&lt;!-- =========================================================
+     GATENOW · MY REVIEWS
+     Service Portal widget · HTML template
+
+     A work queue, set like the proposal page it leads into:
+     hairlines instead of floating cards, sentence case instead
+     of tracked-out capitals, one accent.
+
+     The column the reader scans first is the one that says
+     whether a row is theirs to act on. Everything else on the
+     row is there to help them recognise it.
+     ========================================================= --&gt;
+
+&lt;div class="gn-shell"&gt;
+
+  &lt;sp-widget widget="data.rail"&gt;&lt;/sp-widget&gt;
+
+  &lt;div class="rq"&gt;
+
+    &lt;!-- the four fields are one unit: paste three and the page
+         renders an empty list with nothing to explain it --&gt;
+    &lt;div class="rq-stale" ng-if="c.data.shape !== 'reviewqueue-v2'"&gt;
+      The server script has not been updated. This page is running new markup
+      against an older script, so the list has no data to work from.
+    &lt;/div&gt;
+
+
+    &lt;!-- ═══════════════ BAR ═══════════════ --&gt;
+    &lt;header class="rq-bar"&gt;
+
+      &lt;div class="rq-bar__lead"&gt;
+        &lt;h1 class="rq-bar__title"&gt;My reviews&lt;/h1&gt;
+        &lt;p class="rq-bar__sub"&gt;{{c.summary()}}&lt;/p&gt;
+      &lt;/div&gt;
+
+      &lt;div class="rq-bar__tools" ng-if="c.data.reviews.length"&gt;
+
+        &lt;label class="rq-find"&gt;
+          &lt;input type="text" ng-model="c.query" ng-change="c.onChange()"
+                 placeholder="Search by reference, applicant or program" /&gt;
+          &lt;button type="button" class="rq-find__x"
+                  ng-if="c.query" ng-click="c.clearSearch()"
+                  aria-label="Clear the search"&gt;&amp;times;&lt;/button&gt;
+        &lt;/label&gt;
+
+        &lt;label class="rq-pick"&gt;
+          &lt;span class="rq-pick__l"&gt;Sort&lt;/span&gt;
+          &lt;select ng-model="c.sort" ng-change="c.onSort()"&gt;
+            &lt;option ng-repeat="s in c.sorts track by s.key" value="{{s.key}}"&gt;{{s.label}}&lt;/option&gt;
+          &lt;/select&gt;
+        &lt;/label&gt;
+
+      &lt;/div&gt;
+
+    &lt;/header&gt;
+
+
+    &lt;!-- ═══════════════ FILTERS ═══════════════
+
+         Status as a row of plain words, because status is the
+         filter reached for constantly. Program and deadline as
+         selects underneath, because they are not.
+         ═══════════════════════════════════════ --&gt;
+    &lt;div class="rq-filters" ng-if="c.data.reviews.length"&gt;
+
+      &lt;nav class="rq-chips" aria-label="Filter by status"&gt;
+        &lt;button type="button" class="rq-chip"
+                ng-repeat="f in c.filters track by f.key"
+                ng-class="{'is-on': c.status === f.key}"
+                ng-click="c.setStatus(f.key)"&gt;
+          {{f.label}}&lt;span class="rq-chip__n"&gt;{{f.count()}}&lt;/span&gt;
+        &lt;/button&gt;
+      &lt;/nav&gt;
+
+      &lt;div class="rq-more"&gt;
+
+        &lt;label class="rq-pick" ng-if="c.data.programs.length &gt; 1"&gt;
+          &lt;span class="rq-pick__l"&gt;Program&lt;/span&gt;
+          &lt;select ng-model="c.program" ng-change="c.onChange()"&gt;
+            &lt;option value=""&gt;Every program&lt;/option&gt;
+            &lt;option ng-repeat="p in c.data.programs track by p.key"
+                    value="{{p.key}}"&gt;{{p.label}} ({{p.count}})&lt;/option&gt;
+          &lt;/select&gt;
+        &lt;/label&gt;
+
+        &lt;label class="rq-pick"&gt;
+          &lt;span class="rq-pick__l"&gt;Deadline&lt;/span&gt;
+          &lt;select ng-model="c.bucket" ng-change="c.onChange()"&gt;
+            &lt;option ng-repeat="b in c.buckets track by b.key" value="{{b.key}}"&gt;{{b.label}}&lt;/option&gt;
+          &lt;/select&gt;
+        &lt;/label&gt;
+
+        &lt;button type="button" class="rq-reset" ng-if="c.dirty()" ng-click="c.reset()"&gt;
+          Clear filters
+        &lt;/button&gt;
+
+      &lt;/div&gt;
+
+    &lt;/div&gt;
+
+
+    &lt;!-- ═══════════════ THE LIST ═══════════════ --&gt;
+    &lt;div class="rq-list" ng-if="c.rows().length"&gt;
+
+      &lt;div class="rq-head" aria-hidden="true"&gt;
+        &lt;span&gt;Reference&lt;/span&gt;
+        &lt;span&gt;Program&lt;/span&gt;
+        &lt;span&gt;Status&lt;/span&gt;
+        &lt;span&gt;Score&lt;/span&gt;
+        &lt;span&gt;Deadline&lt;/span&gt;
+      &lt;/div&gt;
+
+      &lt;article class="rq-row"
+               ng-repeat="r in c.rows() track by r.sys_id"
+               ng-class="{'is-late': r.late, 'is-theirs': !r.myTurn &amp;&amp; r.open}"
+               ng-click="c.open(r)"
+               ng-keydown="c.onKey($event, r)"
+               tabindex="0" role="link"&gt;
+
+        &lt;div class="rq-cell rq-cell--ref"&gt;
+          &lt;span class="rq-num"&gt;{{r.number}}&lt;/span&gt;
+          &lt;span class="rq-who" ng-if="r.applicant"&gt;{{r.applicant}}&lt;/span&gt;
+          &lt;span class="rq-who rq-who--none" ng-if="!r.applicant"&gt;No applicant on record&lt;/span&gt;
+        &lt;/div&gt;
+
+        &lt;div class="rq-cell rq-cell--prog"&gt;
+          &lt;span class="rq-prog" ng-if="r.program"&gt;{{r.program}}&lt;/span&gt;
+          &lt;span class="rq-prog rq-prog--none" ng-if="!r.program"&gt;No program set&lt;/span&gt;
+          &lt;span class="rq-org" ng-if="r.org"&gt;{{r.org}}&lt;/span&gt;
+        &lt;/div&gt;
+
+        &lt;div class="rq-cell rq-cell--state"&gt;
+          &lt;span class="rq-state" ng-class="'rq-state--' + r.tone"&gt;{{r.status}}&lt;/span&gt;
+          &lt;!-- the fact the whole row turns on: whose move is it --&gt;
+          &lt;span class="rq-turn" ng-if="r.myTurn &amp;&amp; r.open"&gt;Your turn&lt;/span&gt;
+          &lt;span class="rq-turn rq-turn--other" ng-if="!r.myTurn &amp;&amp; r.open"&gt;With {{r.holder}}&lt;/span&gt;
+        &lt;/div&gt;
+
+        &lt;div class="rq-cell rq-cell--score"&gt;
+          &lt;span class="rq-score" ng-if="r.score !== null"&gt;
+            &lt;span class="rq-score__n"&gt;{{r.scoreText}}&lt;/span&gt;
+            &lt;span class="rq-score__d"&gt;/10&lt;/span&gt;
+          &lt;/span&gt;
+          &lt;span class="rq-score rq-score--none" ng-if="r.score === null"&gt;Not scored&lt;/span&gt;
+        &lt;/div&gt;
+
+        &lt;div class="rq-cell rq-cell--due"&gt;
+          &lt;span class="rq-due" ng-class="'rq-due--' + r.dueTone"&gt;{{r.dueText}}&lt;/span&gt;
+        &lt;/div&gt;
+
+      &lt;/article&gt;
+
+    &lt;/div&gt;
+
+
+    &lt;!-- ═══════════════ PAGER ═══════════════ --&gt;
+    &lt;nav class="rq-pager" ng-if="c.pageCount() &gt; 1"&gt;
+
+      &lt;p class="rq-pager__at"&gt;{{c.rangeText()}}&lt;/p&gt;
+
+      &lt;div class="rq-pager__go"&gt;
+        &lt;button type="button" class="rq-step"
+                ng-disabled="c.page === 1" ng-click="c.go(c.page - 1)"&gt;Previous&lt;/button&gt;
+        &lt;button type="button" class="rq-pg"
+                ng-repeat="p in c.pageList() track by $index"
+                ng-class="{'is-on': p === c.page, 'is-gap': p === '…'}"
+                ng-disabled="p === '…'"
+                ng-click="c.go(p)"&gt;{{p}}&lt;/button&gt;
+        &lt;button type="button" class="rq-step"
+                ng-disabled="c.page === c.pageCount()" ng-click="c.go(c.page + 1)"&gt;Next&lt;/button&gt;
+      &lt;/div&gt;
+
+    &lt;/nav&gt;
+
+
+    &lt;!-- ═══════════════ EMPTY ═══════════════
+
+         An empty screen is a place to say what to do next, not
+         a place for a shrug and an icon.
+         ═══════════════════════════════════ --&gt;
+
+    &lt;div class="rq-empty" ng-if="!c.data.hasGroups"&gt;
+      &lt;h2 class="rq-empty__h"&gt;You are not in a review group yet&lt;/h2&gt;
+      &lt;p class="rq-empty__p"&gt;
+        Reviews are assigned to groups rather than to people. Ask the program office
+        to add you to the group that handles your area, and anything assigned to it
+        will appear here.
+      &lt;/p&gt;
+    &lt;/div&gt;
+
+    &lt;div class="rq-empty" ng-if="c.data.hasGroups &amp;&amp; !c.data.reviews.length"&gt;
+      &lt;h2 class="rq-empty__h"&gt;Nothing assigned to your groups&lt;/h2&gt;
+      &lt;p class="rq-empty__p"&gt;
+        When a proposal is sent to one of your groups it appears here, whether or not
+        it is your group's turn to act on it.
+      &lt;/p&gt;
+    &lt;/div&gt;
+
+    &lt;div class="rq-empty" ng-if="c.data.reviews.length &amp;&amp; !c.matches().length"&gt;
+      &lt;h2 class="rq-empty__h"&gt;Nothing matches those filters&lt;/h2&gt;
+      &lt;p class="rq-empty__p"&gt;Widen one of them, or start again.&lt;/p&gt;
+      &lt;button type="button" class="rq-btn" ng-click="c.reset()"&gt;Clear filters&lt;/button&gt;
+    &lt;/div&gt;
+
+  &lt;/div&gt;
+
+&lt;/div&gt;]]&gt;&lt;/template&gt;&lt;/sp_widget&gt;&lt;/record_update&gt;</payload>
+        <payload_hash>-1984929116</payload_hash>
+        <record_name>Review Proposals</record_name>
+        <reverted_from/>
+        <source>67a05b350fb28b10712b6af300d1b202</source>
+        <source_table>sys_update_set</source_table>
+        <state>current</state>
+        <sys_created_by>umar.farooq</sys_created_by>
+        <sys_created_on>2026-09-15 10:40:29</sys_created_on>
+        <sys_id>bbe1bd9293974710d444c9b877373cc4</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_recorded_at>1a0a4a7667e0000001</sys_recorded_at>
+        <sys_updated_by>umar.farooq</sys_updated_by>
+        <sys_updated_on>2026-09-15 10:40:29</sys_updated_on>
+        <type>Widget</type>
+        <update_guid>77e1bd92519747109ba89c778bc5f215</update_guid>
+        <update_guid_history>77e1bd92519747109ba89c778bc5f215:-1984929116,bc6171928a97471020808b82e4cf2739:1770079770</update_guid_history>
+    </sys_update_version>
+    <sys_metadata_delete action="INSERT_OR_UPDATE">
+        <sys_audit_delete display_value="Review Proposals">8bb456629353c710d444c9b877373c7d</sys_audit_delete>
+        <sys_class_name>sys_metadata_delete</sys_class_name>
+        <sys_created_by>umar.farooq</sys_created_by>
+        <sys_created_on>2026-09-16 07:51:01</sys_created_on>
+        <sys_db_object display_value="" name="sp_widget">sp_widget</sys_db_object>
+        <sys_id>42cdd225babc4ef882ffcf916fb65884</sys_id>
+        <sys_metadata>5841bd5293974710d444c9b877373c1a</sys_metadata>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>Review Proposals</sys_name>
+        <sys_package display_value="GateNow" source="x_enno_gatenow">eabeaf98eb033a10520dfbdffdc0cd51</sys_package>
+        <sys_parent/>
+        <sys_policy/>
+        <sys_scope display_value="GateNow">eabeaf98eb033a10520dfbdffdc0cd51</sys_scope>
+        <sys_scope_delete display_value="">095aa346c8b54bee96df90d0befef064</sys_scope_delete>
+        <sys_update_name>sp_widget_5841bd5293974710d444c9b877373c1a</sys_update_name>
+        <sys_update_version display_value="sp_widget_5841bd5293974710d444c9b877373c1a">bbe1bd9293974710d444c9b877373cc4</sys_update_version>
+        <sys_updated_by>umar.farooq</sys_updated_by>
+        <sys_updated_on>2026-09-16 07:51:01</sys_updated_on>
+    </sys_metadata_delete>
+</record_update>

@@ -1,0 +1,2693 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sp_widget">
+    <sp_widget action="DELETE">
+        <category>custom</category>
+        <client_script><![CDATA[api.controller = function($window) {
+
+  /* =========================================================
+     GATENOW · REVIEWER RAIL · Client script
+
+     One toggle. Every link in the rail is a real anchor with an
+     href, so nothing here navigates and there is no navigation
+     sink for the open-redirect scan to find — sign out
+     included, which is a plain href to /logout.do.
+
+     The pointer-tracking light and the sliding thumb are gone
+     with the glass. Both needed DOM handles and geometry
+     constants that had to stay in step with the stylesheet, and
+     a rail that appears on every page is the wrong place to
+     carry that kind of coupling.
+
+     The collapsed state is remembered between pages. A rail
+     that springs back open on every navigation is one nobody
+     bothers collapsing twice.
+     ========================================================= */
+
+  var c = this;
+
+  var KEY = 'gn.reviewerRail.tight';
+
+  /* sessionStorage can be unavailable — private browsing, a
+     hardened profile, an iframe with storage blocked — and
+     touching it then throws rather than returning null, so
+     every access is wrapped. A rail that will not render
+     because it could not read a preference is worse than one
+     that forgets it. */
+  function remembered() {
+    try {
+      return $window.sessionStorage.getItem(KEY) === '1';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function remember(v) {
+    try {
+      $window.sessionStorage.setItem(KEY, v ? '1' : '0');
+    } catch (e) { /* forgetting is an acceptable outcome */ }
+  }
+
+  c.tight = remembered();
+
+  c.toggle = function() {
+    c.tight = !c.tight;
+    remember(c.tight);
+  };
+};]]></client_script>
+        <controller_as>c</controller_as>
+        <css>/* =========================================================&#13;
+   GATENOW · REVIEWER RAIL&#13;
+   Service Portal widget · CSS / SCSS&#13;
+&#13;
+   Selectors are written out in full. The Service Portal Sass&#13;
+   compiler does not support parent selector concatenation.&#13;
+&#13;
+   Matched to the applicant portal's rail: white, flush to the&#13;
+   edge, grouped under quiet section labels, one accent doing&#13;
+   the work.&#13;
+&#13;
+   WHAT IS NOT HERE, ON PURPOSE&#13;
+&#13;
+   No backdrop blur, no drifting light, no pointer-tracking&#13;
+   sheen. Those depend on a compositing stack that the Service&#13;
+   Portal panel wrapper interferes with, and when any part of it&#13;
+   fails there is no graceful version left — only hard-edged&#13;
+   blobs where a menu should be. A rail is the one component on&#13;
+   every page; it has to be the most boringly reliable thing in&#13;
+   the product.&#13;
+&#13;
+   THE ACCENT&#13;
+&#13;
+   The current page is a pale blue ground, a 3px blue edge and&#13;
+   blue text and icon. Three signals for one state sounds like&#13;
+   too many until you watch somebody scan a rail: the ground&#13;
+   finds it peripherally, the edge anchors it, the colour&#13;
+   confirms it. Everything else on the rail stays grey so those&#13;
+   three can be the only colour on screen.&#13;
+&#13;
+   TYPE&#13;
+     brand      19  700  -0.02em&#13;
+     group      11  600   0.09em caps&#13;
+     item       15  500            → 600 when current&#13;
+     count      11  600  tabular&#13;
+     name       14  600&#13;
+     role       12  400&#13;
+   ========================================================= */&#13;
+&#13;
+/* Service Portal wraps every widget in a panel that clips and&#13;
+   pads. The rail is the full height of the page and its&#13;
+   tooltips have to escape the box, so the wrapper gets out of&#13;
+   the way. */&#13;
+.panel,&#13;
+.panel-body,&#13;
+.sp-widget {&#13;
+  overflow: visible !important;&#13;
+  margin: 0 !important;&#13;
+  padding: 0 !important;&#13;
+  border: 0 !important;&#13;
+  background: transparent !important;&#13;
+  box-shadow: none !important;&#13;
+}&#13;
+&#13;
+&#13;
+/* ---------- typeface ---------- */&#13;
+&#13;
+@font-face {&#13;
+  font-family: "Outfit";&#13;
+  font-style: normal;&#13;
+  font-weight: 400;&#13;
+  font-display: swap;&#13;
+  src: url("/x_enno_gatenow_outfit_regular.woff2") format("woff2");&#13;
+}&#13;
+&#13;
+@font-face {&#13;
+  font-family: "Outfit";&#13;
+  font-style: normal;&#13;
+  font-weight: 500;&#13;
+  font-display: swap;&#13;
+  src: url("/x_enno_gatenow_outfit_medium.woff2") format("woff2");&#13;
+}&#13;
+&#13;
+@font-face {&#13;
+  font-family: "Outfit";&#13;
+  font-style: normal;&#13;
+  font-weight: 600;&#13;
+  font-display: swap;&#13;
+  src: url("/x_enno_gatenow_outfit_semibold.woff2") format("woff2");&#13;
+}&#13;
+&#13;
+@font-face {&#13;
+  font-family: "Outfit";&#13;
+  font-style: normal;&#13;
+  font-weight: 700;&#13;
+  font-display: swap;&#13;
+  src: url("/x_enno_gatenow_outfit_bold.woff2") format("woff2");&#13;
+}&#13;
+&#13;
+&#13;
+/* ---------- tokens ---------- */&#13;
+$a-navy:  #0a2540;&#13;
+$a-ink-2: #35455c;&#13;
+$a-ink-3: #6b7a90;&#13;
+$a-ink-4: #8a94a6;&#13;
+$a-ink-5: #a6aebc;&#13;
+&#13;
+$a-line:   #e6eaf1;&#13;
+$a-line-2: #eef1f6;&#13;
+$a-tint:   #f4f6fa;&#13;
+&#13;
+$a-blue:    #1560e0;&#13;
+$a-blue-dk: #0f4cbb;&#13;
+$a-blue-1:  #eef4fe;&#13;
+$a-blue-2:  #dbe7fc;&#13;
+&#13;
+$a-stop:   #b8394a;&#13;
+$a-stop-1: #fdf2f3;&#13;
+$a-stop-2: #f3d8dc;&#13;
+&#13;
+$a-white: #ffffff;&#13;
+$a-ease:  cubic-bezier(0.32, 0.72, 0, 1);&#13;
+&#13;
+$a-font: "Outfit", "Segoe UI", Roboto, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;&#13;
+&#13;
+$r-wide:  264px;&#13;
+$r-tight: 76px;&#13;
+&#13;
+&#13;
+/* =========================================================&#13;
+   THE RAIL&#13;
+   ========================================================= */&#13;
+&#13;
+.gnr {&#13;
+  flex: 0 0 auto;&#13;
+  width: $r-wide;&#13;
+  font-family: $a-font;&#13;
+  transition: width 0.42s $a-ease;&#13;
+}&#13;
+&#13;
+.gnr.is-tight { width: $r-tight; }&#13;
+&#13;
+.gnr *,&#13;
+.gnr *::before,&#13;
+.gnr *::after { box-sizing: border-box; }&#13;
+&#13;
+/* sticky rather than fixed: fixed takes the rail out of flow&#13;
+   and the page beside it has to be padded by hand, which goes&#13;
+   wrong the moment the width changes */&#13;
+.gnr__inner {&#13;
+  position: sticky;&#13;
+  top: 0;&#13;
+  display: flex;&#13;
+  flex-direction: column;&#13;
+  width: 100%;&#13;
+  height: 100vh;&#13;
+  background: $a-white;&#13;
+  border-right: 1px solid $a-line;&#13;
+  overflow: visible;&#13;
+}&#13;
+&#13;
+&#13;
+/* =========================================================&#13;
+   BRAND&#13;
+   ========================================================= */&#13;
+&#13;
+.gnr__brand {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  justify-content: space-between;&#13;
+  gap: 10px;&#13;
+  height: 72px;&#13;
+  padding: 0 16px 0 20px;&#13;
+  border-bottom: 1px solid $a-line-2;&#13;
+  flex-shrink: 0;&#13;
+}&#13;
+&#13;
+.gnr-mark {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  gap: 12px;&#13;
+  min-width: 0;&#13;
+  color: $a-navy;&#13;
+  text-decoration: none;&#13;
+}&#13;
+&#13;
+.gnr-mark:hover,&#13;
+.gnr-mark:focus {&#13;
+  color: $a-navy;&#13;
+  text-decoration: none;&#13;
+}&#13;
+&#13;
+.gnr-mark__glyph {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  justify-content: center;&#13;
+  width: 38px;&#13;
+  height: 38px;&#13;
+  flex-shrink: 0;&#13;
+  border-radius: 11px;&#13;
+  background: $a-blue;&#13;
+  color: $a-white;&#13;
+  transition: transform 0.4s $a-ease;&#13;
+}&#13;
+&#13;
+.gnr-mark:hover .gnr-mark__glyph { transform: scale(1.05); }&#13;
+&#13;
+.gnr-mark__name {&#13;
+  font-size: 19px;&#13;
+  font-weight: 700;&#13;
+  letter-spacing: -0.02em;&#13;
+  color: $a-navy;&#13;
+  white-space: nowrap;&#13;
+  overflow: hidden;&#13;
+  transition: opacity 0.28s $a-ease;&#13;
+}&#13;
+&#13;
+.gnr-pull {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  justify-content: center;&#13;
+  width: 28px;&#13;
+  height: 28px;&#13;
+  flex-shrink: 0;&#13;
+  padding: 0;&#13;
+  border: 1px solid $a-line;&#13;
+  border-radius: 50%;&#13;
+  background: $a-white;&#13;
+  color: $a-ink-4;&#13;
+  cursor: pointer;&#13;
+  transition: background 0.3s $a-ease, color 0.3s $a-ease,&#13;
+              border-color 0.3s $a-ease, transform 0.42s $a-ease;&#13;
+}&#13;
+&#13;
+.gnr-pull:hover {&#13;
+  background: $a-tint;&#13;
+  border-color: $a-blue-2;&#13;
+  color: $a-blue;&#13;
+}&#13;
+&#13;
+/* the chevron turns to point the way it will move the rail */&#13;
+.gnr.is-tight .gnr-pull { transform: rotate(180deg); }&#13;
+&#13;
+&#13;
+/* =========================================================&#13;
+   NAVIGATION&#13;
+   ========================================================= */&#13;
+&#13;
+.gnr__scroll {&#13;
+  flex: 1;&#13;
+  min-height: 0;&#13;
+  padding: 20px 0 8px;&#13;
+  /* visible, not auto: a scroll container clips the tooltips,&#13;
+     and the nav is short enough not to need one */&#13;
+  overflow: visible;&#13;
+}&#13;
+&#13;
+.gnr-group { margin-bottom: 22px; }&#13;
+&#13;
+.gnr .gnr-group__label {&#13;
+  margin: 0 0 8px;&#13;
+  padding: 0 20px;&#13;
+  font-size: 11px;&#13;
+  font-weight: 600;&#13;
+  letter-spacing: 0.09em;&#13;
+  text-transform: uppercase;&#13;
+  color: $a-ink-5;&#13;
+  white-space: nowrap;&#13;
+  overflow: hidden;&#13;
+  transition: opacity 0.28s $a-ease;&#13;
+}&#13;
+&#13;
+.gnr .gnr-group__list {&#13;
+  display: grid;&#13;
+  gap: 2px;&#13;
+  margin: 0;&#13;
+  padding: 0;&#13;
+  list-style: none;&#13;
+}&#13;
+&#13;
+.gnr-item {&#13;
+  position: relative;&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  gap: 14px;&#13;
+  height: 46px;&#13;
+  padding: 0 16px 0 20px;&#13;
+  color: $a-ink-2;&#13;
+  font-size: 15px;&#13;
+  font-weight: 500;&#13;
+  text-decoration: none;&#13;
+  white-space: nowrap;&#13;
+  transition: background 0.26s $a-ease, color 0.26s $a-ease;&#13;
+}&#13;
+&#13;
+.gnr-item:hover,&#13;
+.gnr-item:focus {&#13;
+  background: $a-tint;&#13;
+  color: $a-navy;&#13;
+  text-decoration: none;&#13;
+}&#13;
+&#13;
+/* Three signals for one state. The ground finds it&#13;
+   peripherally, the edge anchors it, the colour confirms it —&#13;
+   and because nothing else on the rail is coloured, those&#13;
+   three are the only colour on the screen. */&#13;
+.gnr-item.is-here {&#13;
+  background: $a-blue-1;&#13;
+  color: $a-blue;&#13;
+  font-weight: 600;&#13;
+}&#13;
+&#13;
+.gnr-item.is-here:hover,&#13;
+.gnr-item.is-here:focus {&#13;
+  background: $a-blue-2;&#13;
+  color: $a-blue-dk;&#13;
+}&#13;
+&#13;
+.gnr-item__edge {&#13;
+  position: absolute;&#13;
+  top: 50%;&#13;
+  left: 0;&#13;
+  width: 3px;&#13;
+  height: 0;&#13;
+  border-radius: 0 3px 3px 0;&#13;
+  background: $a-blue;&#13;
+  transform: translateY(-50%);&#13;
+  transition: height 0.3s $a-ease;&#13;
+}&#13;
+&#13;
+.gnr-item.is-here .gnr-item__edge { height: 100%; }&#13;
+&#13;
+.gnr-item__ico {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  justify-content: center;&#13;
+  width: 20px;&#13;
+  flex-shrink: 0;&#13;
+  color: $a-ink-3;&#13;
+  transition: color 0.26s $a-ease;&#13;
+}&#13;
+&#13;
+.gnr-item:hover .gnr-item__ico    { color: $a-ink-2; }&#13;
+.gnr-item.is-here .gnr-item__ico  { color: $a-blue; }&#13;
+&#13;
+.gnr-item__label {&#13;
+  flex: 1;&#13;
+  min-width: 0;&#13;
+  overflow: hidden;&#13;
+  text-overflow: ellipsis;&#13;
+}&#13;
+&#13;
+.gnr-item__n {&#13;
+  flex-shrink: 0;&#13;
+  min-width: 22px;&#13;
+  padding: 2px 7px;&#13;
+  border-radius: 999px;&#13;
+  background: $a-tint;&#13;
+  color: $a-ink-3;&#13;
+  font-size: 11px;&#13;
+  font-weight: 600;&#13;
+  font-variant-numeric: tabular-nums;&#13;
+  text-align: center;&#13;
+  transition: background 0.26s $a-ease, color 0.26s $a-ease;&#13;
+}&#13;
+&#13;
+.gnr-item__n.is-alert {&#13;
+  background: $a-stop-1;&#13;
+  color: $a-stop;&#13;
+}&#13;
+&#13;
+.gnr-item.is-here .gnr-item__n {&#13;
+  background: $a-white;&#13;
+  color: $a-blue;&#13;
+}&#13;
+&#13;
+&#13;
+/* =========================================================&#13;
+   OVERDUE&#13;
+   ========================================================= */&#13;
+&#13;
+.gnr-alert {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  gap: 11px;&#13;
+  margin: 0 14px 14px;&#13;
+  padding: 11px 13px;&#13;
+  border: 1px solid $a-stop-2;&#13;
+  border-radius: 12px;&#13;
+  background: $a-stop-1;&#13;
+  color: $a-ink-2;&#13;
+  text-decoration: none;&#13;
+  white-space: nowrap;&#13;
+  flex-shrink: 0;&#13;
+  transition: background 0.3s $a-ease, border-color 0.3s $a-ease;&#13;
+}&#13;
+&#13;
+.gnr-alert:hover,&#13;
+.gnr-alert:focus {&#13;
+  background: #fbe9eb;&#13;
+  border-color: #e8bfc6;&#13;
+  color: $a-ink-2;&#13;
+  text-decoration: none;&#13;
+}&#13;
+&#13;
+.gnr-alert__ico {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  justify-content: center;&#13;
+  width: 20px;&#13;
+  flex-shrink: 0;&#13;
+  color: $a-stop;&#13;
+}&#13;
+&#13;
+.gnr-alert__body {&#13;
+  display: flex;&#13;
+  flex-direction: column;&#13;
+  gap: 2px;&#13;
+  min-width: 0;&#13;
+  overflow: hidden;&#13;
+}&#13;
+&#13;
+.gnr-alert__n {&#13;
+  font-size: 13px;&#13;
+  font-weight: 600;&#13;
+  letter-spacing: -0.006em;&#13;
+  font-variant-numeric: tabular-nums;&#13;
+  color: $a-stop;&#13;
+}&#13;
+&#13;
+.gnr-alert__label {&#13;
+  font-size: 11px;&#13;
+  color: $a-ink-4;&#13;
+  overflow: hidden;&#13;
+  text-overflow: ellipsis;&#13;
+}&#13;
+&#13;
+&#13;
+/* =========================================================&#13;
+   WHO&#13;
+   ========================================================= */&#13;
+&#13;
+.gnr__foot {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  gap: 8px;&#13;
+  padding: 14px 16px 14px 20px;&#13;
+  border-top: 1px solid $a-line-2;&#13;
+  flex-shrink: 0;&#13;
+}&#13;
+&#13;
+.gnr-me {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  gap: 12px;&#13;
+  flex: 1;&#13;
+  min-width: 0;&#13;
+  padding: 4px;&#13;
+  margin: -4px;&#13;
+  border-radius: 10px;&#13;
+  color: $a-ink-2;&#13;
+  text-decoration: none;&#13;
+  white-space: nowrap;&#13;
+  transition: background 0.3s $a-ease;&#13;
+}&#13;
+&#13;
+.gnr-me:hover,&#13;
+.gnr-me:focus {&#13;
+  background: $a-tint;&#13;
+  color: $a-ink-2;&#13;
+  text-decoration: none;&#13;
+}&#13;
+&#13;
+.gnr-me__avatar {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  justify-content: center;&#13;
+  width: 38px;&#13;
+  height: 38px;&#13;
+  flex-shrink: 0;&#13;
+  border-radius: 11px;&#13;
+  background: $a-blue;&#13;
+  color: $a-white;&#13;
+  font-size: 13px;&#13;
+  font-weight: 600;&#13;
+  letter-spacing: 0.03em;&#13;
+}&#13;
+&#13;
+.gnr-me__body {&#13;
+  display: flex;&#13;
+  flex-direction: column;&#13;
+  gap: 2px;&#13;
+  min-width: 0;&#13;
+  overflow: hidden;&#13;
+}&#13;
+&#13;
+.gnr-me__name {&#13;
+  font-size: 14px;&#13;
+  font-weight: 600;&#13;
+  letter-spacing: -0.008em;&#13;
+  color: $a-navy;&#13;
+  overflow: hidden;&#13;
+  text-overflow: ellipsis;&#13;
+}&#13;
+&#13;
+.gnr-me__role {&#13;
+  font-size: 12px;&#13;
+  color: $a-ink-4;&#13;
+  overflow: hidden;&#13;
+  text-overflow: ellipsis;&#13;
+}&#13;
+&#13;
+.gnr-out {&#13;
+  display: flex;&#13;
+  align-items: center;&#13;
+  justify-content: center;&#13;
+  width: 34px;&#13;
+  height: 34px;&#13;
+  flex-shrink: 0;&#13;
+  border-radius: 10px;&#13;
+  color: $a-ink-4;&#13;
+  text-decoration: none;&#13;
+  transition: background 0.3s $a-ease, color 0.3s $a-ease;&#13;
+}&#13;
+&#13;
+.gnr-out:hover,&#13;
+.gnr-out:focus {&#13;
+  background: $a-stop-1;&#13;
+  color: $a-stop;&#13;
+  text-decoration: none;&#13;
+}&#13;
+&#13;
+&#13;
+/* =========================================================&#13;
+   COLLAPSED&#13;
+&#13;
+   Labels collapse to nothing and every row grows a tooltip.&#13;
+   Nothing leaves the DOM: hiding by width and opacity keeps&#13;
+   the transition smooth and keeps the labels readable to a&#13;
+   screen reader.&#13;
+   ========================================================= */&#13;
+&#13;
+.gnr.is-tight .gnr__brand {&#13;
+  justify-content: center;&#13;
+  gap: 0;&#13;
+  padding: 0;&#13;
+}&#13;
+&#13;
+.gnr.is-tight .gnr-mark__name,&#13;
+.gnr.is-tight .gnr-item__label,&#13;
+.gnr.is-tight .gnr-item__n,&#13;
+.gnr.is-tight .gnr-alert__body,&#13;
+.gnr.is-tight .gnr-me__body {&#13;
+  width: 0;&#13;
+  opacity: 0;&#13;
+  overflow: hidden;&#13;
+  pointer-events: none;&#13;
+}&#13;
+&#13;
+.gnr.is-tight .gnr-mark { justify-content: center; }&#13;
+&#13;
+/* the pull sits under the mark rather than beside it, because&#13;
+   at 76px there is no beside */&#13;
+.gnr.is-tight .gnr-pull {&#13;
+  position: absolute;&#13;
+  top: 82px;&#13;
+  left: 50%;&#13;
+  transform: translateX(-50%) rotate(180deg);&#13;
+  z-index: 2;&#13;
+}&#13;
+&#13;
+.gnr.is-tight .gnr__scroll { padding-top: 46px; }&#13;
+&#13;
+/* the group label becomes a hairline. A four-letter&#13;
+   abbreviation of "Workspace" says less than a rule does, and&#13;
+   an empty gap loses the grouping altogether. */&#13;
+.gnr.is-tight .gnr-group__label {&#13;
+  height: 1px;&#13;
+  margin: 0 20px 12px;&#13;
+  padding: 0;&#13;
+  overflow: hidden;&#13;
+  background: $a-line-2;&#13;
+  color: transparent;&#13;
+}&#13;
+&#13;
+.gnr.is-tight .gnr-item,&#13;
+.gnr.is-tight .gnr-me {&#13;
+  justify-content: center;&#13;
+  gap: 0;&#13;
+  padding: 0;&#13;
+}&#13;
+&#13;
+.gnr.is-tight .gnr-alert {&#13;
+  justify-content: center;&#13;
+  gap: 0;&#13;
+  margin: 0 14px 14px;&#13;
+  padding: 11px 0;&#13;
+}&#13;
+&#13;
+.gnr.is-tight .gnr__foot {&#13;
+  justify-content: center;&#13;
+  padding: 14px 0;&#13;
+}&#13;
+&#13;
+.gnr.is-tight .gnr-me {&#13;
+  flex: 0 0 auto;&#13;
+  margin: 0;&#13;
+}&#13;
+&#13;
+/* the badge becomes a dot on the icon: the number cannot be&#13;
+   read at this width, but the fact that there is one can */&#13;
+.gnr.is-tight .gnr-item__ico { position: relative; }&#13;
+&#13;
+.gnr.is-tight .gnr-item.has-n .gnr-item__ico::after,&#13;
+.gnr.is-tight .gnr-item.has-alert .gnr-item__ico::after {&#13;
+  content: "";&#13;
+  position: absolute;&#13;
+  top: -1px;&#13;
+  right: -3px;&#13;
+  width: 7px;&#13;
+  height: 7px;&#13;
+  border-radius: 50%;&#13;
+  box-shadow: 0 0 0 2px $a-white;&#13;
+}&#13;
+&#13;
+.gnr.is-tight .gnr-item.has-n .gnr-item__ico::after     { background: $a-blue; }&#13;
+.gnr.is-tight .gnr-item.has-alert .gnr-item__ico::after { background: $a-stop; }&#13;
+&#13;
+/* on the tinted active row the ring has to match that ground,&#13;
+   not the card, or the dot sits in a white hole */&#13;
+.gnr.is-tight .gnr-item.is-here .gnr-item__ico::after {&#13;
+  box-shadow: 0 0 0 2px $a-blue-1;&#13;
+}&#13;
+&#13;
+&#13;
+/* ---------- tooltips ----------&#13;
+&#13;
+   CSS rather than script. A tooltip that needs a digest to&#13;
+   appear arrives late enough to be useless, and the label it&#13;
+   shows is already on the element.&#13;
+   ------------------------------------------------------- */&#13;
+&#13;
+.gnr.is-tight .gnr-item,&#13;
+.gnr.is-tight .gnr-alert,&#13;
+.gnr.is-tight .gnr-me,&#13;
+.gnr.is-tight .gnr-out,&#13;
+.gnr.is-tight .gnr-pull { position: relative; }&#13;
+&#13;
+.gnr.is-tight [data-tip]::before {&#13;
+  content: attr(data-tip);&#13;
+  position: absolute;&#13;
+  top: 50%;&#13;
+  left: calc(100% + 12px);&#13;
+  z-index: 60;&#13;
+  padding: 7px 11px;&#13;
+  border-radius: 9px;&#13;
+  background: $a-navy;&#13;
+  box-shadow: 0 10px 24px -12px rgba(10, 37, 64, 0.7);&#13;
+  color: $a-white;&#13;
+  font-size: 12.5px;&#13;
+  font-weight: 500;&#13;
+  white-space: nowrap;&#13;
+  opacity: 0;&#13;
+  transform: translate(-5px, -50%);&#13;
+  pointer-events: none;&#13;
+  transition: opacity 0.2s $a-ease, transform 0.2s $a-ease;&#13;
+}&#13;
+&#13;
+.gnr.is-tight [data-tip]:hover::before,&#13;
+.gnr.is-tight [data-tip]:focus-visible::before {&#13;
+  opacity: 1;&#13;
+  transform: translate(0, -50%);&#13;
+}&#13;
+&#13;
+.gnr-item:focus-visible,&#13;
+.gnr-me:focus-visible,&#13;
+.gnr-out:focus-visible,&#13;
+.gnr-mark:focus-visible,&#13;
+.gnr-alert:focus-visible,&#13;
+.gnr-pull:focus-visible {&#13;
+  outline: 2px solid $a-blue;&#13;
+  outline-offset: -2px;&#13;
+}&#13;
+&#13;
+&#13;
+/* =========================================================&#13;
+   MOTION&#13;
+&#13;
+   One short cascade on load and nothing after. A rail that is&#13;
+   on every page should not perform on every page.&#13;
+   ========================================================= */&#13;
+&#13;
+@media (prefers-reduced-motion: no-preference) {&#13;
+&#13;
+  @keyframes gnrIn {&#13;
+    from { opacity: 0; transform: translateX(-8px); }&#13;
+    to   { opacity: 1; transform: translateX(0); }&#13;
+  }&#13;
+&#13;
+  .gnr__brand { animation: gnrIn 0.42s $a-ease backwards; }&#13;
+&#13;
+  .gnr .gnr-group__label { animation: gnrIn 0.38s $a-ease 0.08s backwards; }&#13;
+&#13;
+  .gnr .gnr-group__list li { animation: gnrIn 0.38s $a-ease backwards; }&#13;
+&#13;
+  .gnr .gnr-group__list li:nth-child(1) { animation-delay: 0.10s; }&#13;
+  .gnr .gnr-group__list li:nth-child(2) { animation-delay: 0.14s; }&#13;
+  .gnr .gnr-group__list li:nth-child(3) { animation-delay: 0.18s; }&#13;
+  .gnr .gnr-group__list li:nth-child(n+4) { animation-delay: 0.22s; }&#13;
+&#13;
+  .gnr-alert { animation: gnrIn 0.4s $a-ease 0.26s backwards; }&#13;
+  .gnr__foot { animation: gnrIn 0.4s $a-ease 0.3s backwards; }&#13;
+}&#13;
+&#13;
+&#13;
+/* =========================================================&#13;
+   RESPONSIVE&#13;
+&#13;
+   Below the tablet breakpoint the rail locks to icons and&#13;
+   loses the collapse control. 264px of navigation on a 400px&#13;
+   screen leaves no page, so the choice is not worth offering.&#13;
+   ========================================================= */&#13;
+&#13;
+@media (max-width: 900px) {&#13;
+&#13;
+  .gnr,&#13;
+  .gnr.is-tight { width: $r-tight; }&#13;
+&#13;
+  .gnr .gnr-mark__name,&#13;
+  .gnr .gnr-item__label,&#13;
+  .gnr .gnr-item__n,&#13;
+  .gnr .gnr-alert__body,&#13;
+  .gnr .gnr-me__body {&#13;
+    width: 0;&#13;
+    opacity: 0;&#13;
+    overflow: hidden;&#13;
+    pointer-events: none;&#13;
+  }&#13;
+&#13;
+  .gnr .gnr__brand {&#13;
+    justify-content: center;&#13;
+    gap: 0;&#13;
+    padding: 0;&#13;
+  }&#13;
+&#13;
+  .gnr .gnr-mark { justify-content: center; }&#13;
+&#13;
+  /* the pull has nothing left to do once the width is fixed */&#13;
+  .gnr .gnr-pull { display: none; }&#13;
+&#13;
+  .gnr .gnr__scroll { padding-top: 20px; }&#13;
+&#13;
+  .gnr .gnr-group__label {&#13;
+    height: 1px;&#13;
+    margin: 0 20px 12px;&#13;
+    padding: 0;&#13;
+    overflow: hidden;&#13;
+    background: $a-line-2;&#13;
+    color: transparent;&#13;
+  }&#13;
+&#13;
+  .gnr .gnr-item,&#13;
+  .gnr .gnr-me {&#13;
+    justify-content: center;&#13;
+    gap: 0;&#13;
+    padding: 0;&#13;
+  }&#13;
+&#13;
+  .gnr .gnr-alert {&#13;
+    justify-content: center;&#13;
+    gap: 0;&#13;
+    padding: 11px 0;&#13;
+  }&#13;
+&#13;
+  .gnr .gnr__foot {&#13;
+    justify-content: center;&#13;
+    padding: 14px 0;&#13;
+  }&#13;
+&#13;
+  .gnr .gnr-me {&#13;
+    flex: 0 0 auto;&#13;
+    margin: 0;&#13;
+  }&#13;
+&#13;
+  .gnr .gnr-item__ico { position: relative; }&#13;
+&#13;
+  .gnr .gnr-item.has-n .gnr-item__ico::after,&#13;
+  .gnr .gnr-item.has-alert .gnr-item__ico::after {&#13;
+    content: "";&#13;
+    position: absolute;&#13;
+    top: -1px;&#13;
+    right: -3px;&#13;
+    width: 7px;&#13;
+    height: 7px;&#13;
+    border-radius: 50%;&#13;
+    box-shadow: 0 0 0 2px $a-white;&#13;
+  }&#13;
+&#13;
+  .gnr .gnr-item.has-n .gnr-item__ico::after     { background: $a-blue; }&#13;
+  .gnr .gnr-item.has-alert .gnr-item__ico::after { background: $a-stop; }&#13;
+&#13;
+  .gnr .gnr-item.is-here .gnr-item__ico::after {&#13;
+    box-shadow: 0 0 0 2px $a-blue-1;&#13;
+  }&#13;
+&#13;
+  .gnr-item,&#13;
+  .gnr-alert,&#13;
+  .gnr-me,&#13;
+  .gnr-out { position: relative; }&#13;
+&#13;
+  .gnr [data-tip]::before {&#13;
+    content: attr(data-tip);&#13;
+    position: absolute;&#13;
+    top: 50%;&#13;
+    left: calc(100% + 12px);&#13;
+    z-index: 60;&#13;
+    padding: 7px 11px;&#13;
+    border-radius: 9px;&#13;
+    background: $a-navy;&#13;
+    box-shadow: 0 10px 24px -12px rgba(10, 37, 64, 0.7);&#13;
+    color: $a-white;&#13;
+    font-size: 12.5px;&#13;
+    font-weight: 500;&#13;
+    white-space: nowrap;&#13;
+    opacity: 0;&#13;
+    transform: translate(-5px, -50%);&#13;
+    pointer-events: none;&#13;
+    transition: opacity 0.2s $a-ease, transform 0.2s $a-ease;&#13;
+  }&#13;
+&#13;
+  .gnr [data-tip]:hover::before,&#13;
+  .gnr [data-tip]:focus-visible::before {&#13;
+    opacity: 1;&#13;
+    transform: translate(0, -50%);&#13;
+  }&#13;
+}&#13;
+&#13;
+@media (prefers-reduced-motion: reduce) {&#13;
+  .gnr,&#13;
+  .gnr * {&#13;
+    transition: none;&#13;
+    animation: none;&#13;
+  }&#13;
+  .gnr-mark:hover .gnr-mark__glyph { transform: none; }&#13;
+}</css>
+        <data_table>sp_instance</data_table>
+        <demo_data/>
+        <description/>
+        <docs/>
+        <field_list/>
+        <has_preview>false</has_preview>
+        <id>review_sidebar</id>
+        <internal>false</internal>
+        <link><![CDATA[function link(scope, element, attrs, controller) {
+  
+}]]></link>
+        <name>Review Sidebar</name>
+        <option_schema/>
+        <public>false</public>
+        <roles/>
+        <script><![CDATA[(function () {
+
+  /* =========================================================
+     GATENOW · REVIEWER RAIL
+     Service Portal widget · Server script
+
+     Navigation for the reviewer portal, plus the two counts
+     worth putting on it: how much is open, and how much of that
+     is late.
+
+     Its own widget on purpose. The rail used to live inside the
+     dashboard, which meant the dashboard owned navigation for
+     pages it knew nothing about, and adding a page meant
+     editing a widget that had no other reason to change.
+
+     The counts use GlideAggregate rather than walking the
+     table. The rail appears on every page and must not cost a
+     full read of the review table each time one loads.
+     ========================================================= */
+
+  var REVIEW = 'x_enno_gatenow_grant_review';
+
+  var me = gs.getUserID();
+
+  function opt(name, fallback) {
+    var v = options[name];
+    return (v === null || v === undefined || v === '') ? fallback : v.toString();
+  }
+
+  function url(pageId) { return '?id=' + pageId; }
+
+
+  /* ============================================================
+     WHO
+     ============================================================ */
+
+  var u = gs.getUser();
+
+  data.user = {
+    name    : u.getDisplayName() || gs.getUserName(),
+    title   : '',
+    initials: ((u.getFirstName() || 'R').charAt(0) +
+               (u.getLastName()  || '').charAt(0)).toUpperCase()
+  };
+
+  try {
+    var ur = new GlideRecordSecure('sys_user');
+    if (ur.get(me)) data.user.title = ur.getValue('title') || '';
+  } catch (e) { /* the title is decoration, not a requirement */ }
+
+
+  /* ============================================================
+     THE COUNTS
+
+     Two aggregates, not a read. "Open" is anything not settled;
+     "overdue" is open and past its deadline. Both are scoped to
+     the groups this reviewer belongs to, so the badge matches
+     what the dashboard will show them.
+     ============================================================ */
+
+  var groups = [];
+
+  try {
+    var gm = new GlideRecordSecure('sys_user_grmember');
+    gm.addQuery('user', me);
+    gm.query();
+    while (gm.next()) groups.push(gm.getValue('group'));
+  } catch (e) {
+    gs.warn('[ReviewerRail] group membership unreadable: ' + e.message);
+  }
+
+  /* These are the status values the review table stores. They
+     are display strings rather than choice keys, which is what
+     the rest of the reviewer code already assumes — if that
+     changes, this list and the dashboard's tone map change
+     together. */
+  var SETTLED = ['Review completed', 'Declined by Reviewer'];
+
+  var open    = 0;
+  var overdue = 0;
+
+  if (groups.length) {
+
+    try {
+      var ga = new GlideAggregate(REVIEW);
+      ga.addQuery('review_group', 'IN', groups.join(','));
+      ga.addQuery('status', 'NOT IN', SETTLED.join(','));
+      ga.addAggregate('COUNT');
+      ga.query();
+      if (ga.next()) open = parseInt(ga.getAggregate('COUNT'), 10) || 0;
+    } catch (e) {
+      gs.info('[ReviewerRail] open count unavailable: ' + e.message);
+    }
+
+    try {
+      var gd = new GlideAggregate(REVIEW);
+      gd.addQuery('review_group', 'IN', groups.join(','));
+      gd.addQuery('status', 'NOT IN', SETTLED.join(','));
+      gd.addQuery('review_deadline', '<', new GlideDateTime().getValue());
+      gd.addAggregate('COUNT');
+      gd.query();
+      if (gd.next()) overdue = parseInt(gd.getAggregate('COUNT'), 10) || 0;
+    } catch (e) {
+      gs.info('[ReviewerRail] overdue count unavailable: ' + e.message);
+    }
+  }
+
+  data.overdue = overdue;
+
+
+  /* ============================================================
+     NAVIGATION
+
+     Page ids come from widget options so the rail can be
+     repointed without editing a script. The current page is read
+     from the URL rather than passed in, so any page the rail is
+     dropped on highlights itself with no extra wiring.
+     ============================================================ */
+
+  var here = '' + ($sp.getParameter('id') || '');
+
+  var pages = {
+    dashboard: opt('dashboard_page', 'review_dashboard'),
+    queue    : opt('queue_page',     'review_proposals'),
+    done     : opt('completed_page', 'review_completed'),
+    programs : opt('programs_page',  'review_programs'),
+    profile  : opt('profile_page',   'user_profile')
+  };
+
+  data.homeUrl    = url(pages.dashboard);
+  data.queueUrl   = url(pages.queue);
+  data.profileUrl = url(pages.profile);
+
+  /* The icon is a semantic key, not a font class. The template
+     switches on it and draws the path inline, because no icon
+     font gives you a consistent 1.75 stroke across every glyph
+     and inconsistent weight is what makes a rail look
+     assembled rather than drawn.
+
+     Grouped rather than flat. Four items need no grouping; six
+     do, and a rail that cannot absorb its sixth item without
+     becoming a list is one that gets rewritten the first time
+     somebody adds a page. The group is decided here so the
+     template never has to know the shape of the menu. */
+  data.groups = [
+    {
+      key  : 'work',
+      label: gs.getMessage('Workspace'),
+      items: [
+        {
+          key  : 'dashboard',
+          label: gs.getMessage('Dashboard'),
+          icon : 'grid',
+          url  : url(pages.dashboard),
+          active: here === pages.dashboard,
+          count: 0
+        },
+        {
+          key  : 'queue',
+          label: gs.getMessage('My reviews'),
+          icon : 'list',
+          url  : url(pages.queue),
+          active: here === pages.queue,
+          /* the badge carries what is open, and overdue turns it
+             red rather than adding a second badge — one number
+             in one place, coloured by whether it is a problem */
+          count: open,
+          alert: overdue > 0
+        },
+        {
+          key  : 'done',
+          label: gs.getMessage('Completed'),
+          icon : 'check',
+          url  : url(pages.done),
+          active: here === pages.done,
+          count: 0
+        }
+      ]
+    },
+    {
+      key  : 'library',
+      label: gs.getMessage('Library'),
+      items: [
+        {
+          key  : 'programs',
+          label: gs.getMessage('Programs'),
+          icon : 'folder',
+          url  : url(pages.programs),
+          active: here === pages.programs,
+          count: 0
+        }
+      ]
+    }
+  ];
+
+  /* a detail page is reached from the queue, so it lights the
+     queue rather than leaving the rail with nothing lit */
+  if (here) {
+
+    var lit = false;
+
+    for (var g = 0; g < data.groups.length; g++) {
+      for (var i = 0; i < data.groups[g].items.length; i++) {
+        if (data.groups[g].items[i].active) { lit = true; break; }
+      }
+    }
+
+    if (!lit && here.indexOf('review') !== -1) {
+      for (var g2 = 0; g2 < data.groups.length; g2++) {
+        for (var i2 = 0; i2 < data.groups[g2].items.length; i2++) {
+          if (data.groups[g2].items[i2].key === 'queue') {
+            data.groups[g2].items[i2].active = true;
+          }
+        }
+      }
+    }
+  }
+
+  data.t = {
+    brand     : gs.getMessage('GateNow'),
+    brandSub  : gs.getMessage('Review'),
+    nav       : gs.getMessage('Reviewer navigation'),
+    home      : gs.getMessage('Go to the dashboard'),
+
+    collapse  : gs.getMessage('Collapse the menu'),
+    expand    : gs.getMessage('Expand the menu'),
+
+    overdue   : gs.getMessage('overdue'),
+    overdueSub: gs.getMessage('Past the review deadline'),
+    role      : gs.getMessage('Reviewer'),
+    logout    : gs.getMessage('Sign out')
+  };
+
+})();]]></script>
+        <servicenow>false</servicenow>
+        <sys_class_name>sp_widget</sys_class_name>
+        <sys_created_by>admin</sys_created_by>
+        <sys_created_on>2026-09-13 14:43:42</sys_created_on>
+        <sys_id>441658750f5b8310712b6af300d1b23c</sys_id>
+        <sys_mod_count>3</sys_mod_count>
+        <sys_name>Review Sidebar</sys_name>
+        <sys_package display_value="GateNow" source="x_enno_gatenow">eabeaf98eb033a10520dfbdffdc0cd51</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="GateNow">eabeaf98eb033a10520dfbdffdc0cd51</sys_scope>
+        <sys_update_name>sp_widget_441658750f5b8310712b6af300d1b23c</sys_update_name>
+        <sys_updated_by>umar.farooq</sys_updated_by>
+        <sys_updated_on>2026-09-13 15:12:08</sys_updated_on>
+        <template><![CDATA[<!-- =========================================================
+     GATENOW · REVIEWER RAIL
+     Service Portal widget · HTML template
+
+     Built to match the applicant portal's rail, so a person who
+     is both an applicant and a reviewer sees one product rather
+     than two.
+
+     White, flush to the edge, grouped under quiet section
+     labels, and one accent doing the work. No glass, no blur,
+     no drifting light: those depend on a stack that the Service
+     Portal panel wrapper interferes with, and when any part of
+     it fails there is no graceful version of it left.
+
+     Icons are inline SVG rather than a font. The line weight in
+     the applicant rail is 1.75 and no icon font gives you that
+     — Font Awesome's outline set is heavier and inconsistent
+     between glyphs, which is what makes a rail look assembled
+     rather than drawn.
+     ========================================================= -->
+
+<nav class="gnr" ng-class="{'is-tight': c.tight}" aria-label="{{c.data.t.nav}}">
+
+  <div class="gnr__inner">
+
+    <!-- ═══════════════ BRAND ═══════════════ -->
+    <header class="gnr__brand">
+
+      <a class="gnr-mark" ng-href="{{c.data.homeUrl}}" aria-label="{{c.data.t.home}}">
+        <span class="gnr-mark__glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor"
+               stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 4v16"></path>
+            <path d="M5 8h14"></path>
+            <path d="M5 8l-2.5 5.5a3 3 0 0 0 5 0z"></path>
+            <path d="M19 8l2.5 5.5a3 3 0 0 1-5 0z"></path>
+            <path d="M8.5 20h7"></path>
+          </svg>
+        </span>
+        <span class="gnr-mark__name">{{c.data.t.brand}}</span>
+      </a>
+
+      <button type="button" class="gnr-pull"
+              ng-click="c.toggle()"
+              ng-attr-aria-expanded="{{!c.tight}}"
+              aria-label="{{c.tight ? c.data.t.expand : c.data.t.collapse}}"
+              ng-attr-data-tip="{{c.tight ? c.data.t.expand : c.data.t.collapse}}">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 6l-6 6 6 6"></path>
+        </svg>
+      </button>
+
+    </header>
+
+
+    <!-- ═══════════════ NAVIGATION ═══════════════ -->
+    <div class="gnr__scroll">
+
+      <section class="gnr-group" ng-repeat="g in c.data.groups track by g.key">
+
+        <p class="gnr-group__label">{{g.label}}</p>
+
+        <ul class="gnr-group__list">
+          <li ng-repeat="n in g.items track by n.key">
+            <a class="gnr-item"
+               ng-class="{'is-here': n.active, 'has-n': n.count > 0, 'has-alert': n.alert}"
+               ng-href="{{n.url}}"
+               ng-attr-aria-current="{{n.active ? 'page' : undefined}}"
+               ng-attr-data-tip="{{n.label}}">
+
+              <span class="gnr-item__edge" aria-hidden="true"></span>
+
+              <!-- one weight, one corner radius, one grid. An
+                   icon set that is drawn rather than collected
+                   is most of what makes a rail look finished. -->
+              <span class="gnr-item__ico" ng-switch="n.icon" aria-hidden="true">
+
+                <svg ng-switch-when="grid" viewBox="0 0 24 24" width="18" height="18" fill="none"
+                     stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="7.5" height="7.5" rx="2"></rect>
+                  <rect x="13.5" y="3" width="7.5" height="7.5" rx="2"></rect>
+                  <rect x="3" y="13.5" width="7.5" height="7.5" rx="2"></rect>
+                  <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"></rect>
+                </svg>
+
+                <svg ng-switch-when="list" viewBox="0 0 24 24" width="18" height="18" fill="none"
+                     stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 6h12"></path>
+                  <path d="M9 12h12"></path>
+                  <path d="M9 18h12"></path>
+                  <circle cx="4" cy="6" r="1.2"></circle>
+                  <circle cx="4" cy="12" r="1.2"></circle>
+                  <circle cx="4" cy="18" r="1.2"></circle>
+                </svg>
+
+                <svg ng-switch-when="check" viewBox="0 0 24 24" width="18" height="18" fill="none"
+                     stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 11.2V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                  <path d="M8.5 11.5l3 3L21 5"></path>
+                </svg>
+
+                <svg ng-switch-when="folder" viewBox="0 0 24 24" width="18" height="18" fill="none"
+                     stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 7.5a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                </svg>
+
+                <svg ng-switch-default viewBox="0 0 24 24" width="18" height="18" fill="none"
+                     stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="8.5"></circle>
+                </svg>
+
+              </span>
+
+              <span class="gnr-item__label">{{n.label}}</span>
+
+              <!-- a count only appears when it is not zero. A
+                   badge reading 0 costs attention and returns
+                   nothing. -->
+              <span class="gnr-item__n"
+                    ng-if="n.count"
+                    ng-class="{'is-alert': n.alert}">{{n.count}}</span>
+
+            </a>
+          </li>
+        </ul>
+
+      </section>
+
+    </div>
+
+
+    <!-- ═══════════════ OVERDUE ═══════════════
+
+         Present only when the number is not zero: a standing
+         banner that is usually empty teaches people to skip the
+         place it appears.
+         ═══════════════════════════════════════ -->
+    <a class="gnr-alert" ng-if="c.data.overdue" ng-href="{{c.data.queueUrl}}"
+       ng-attr-data-tip="{{c.data.overdue}} {{c.data.t.overdue}}">
+
+      <span class="gnr-alert__ico" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+             stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.5"></circle>
+          <path d="M12 7.5V12l3 1.8"></path>
+        </svg>
+      </span>
+
+      <span class="gnr-alert__body">
+        <span class="gnr-alert__n">{{c.data.overdue}} {{c.data.t.overdue}}</span>
+        <span class="gnr-alert__label">{{c.data.t.overdueSub}}</span>
+      </span>
+
+    </a>
+
+
+    <!-- ═══════════════ WHO ═══════════════ -->
+    <footer class="gnr__foot">
+
+      <a class="gnr-me" ng-href="{{c.data.profileUrl}}"
+         ng-attr-data-tip="{{c.data.user.name}}">
+        <span class="gnr-me__avatar">{{c.data.user.initials}}</span>
+        <span class="gnr-me__body">
+          <span class="gnr-me__name">{{c.data.user.name}}</span>
+          <span class="gnr-me__role">{{c.data.user.title || c.data.t.role}}</span>
+        </span>
+      </a>
+
+      <!-- Sign out is a real server round trip, so it is a plain
+           anchor rather than anything built in script. -->
+      <a class="gnr-out" href="/logout.do"
+         aria-label="{{c.data.t.logout}}"
+         ng-attr-data-tip="{{c.data.t.logout}}">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+             stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3"></path>
+          <path d="M10 17l5-5-5-5"></path>
+          <path d="M15 12H3"></path>
+        </svg>
+      </a>
+
+    </footer>
+
+  </div>
+
+</nav>]]></template>
+    </sp_widget>
+    <sys_update_version action="INSERT_OR_UPDATE">
+        <action>DELETE</action>
+        <application display_value="GateNow">eabeaf98eb033a10520dfbdffdc0cd51</application>
+        <file_path/>
+        <instance_id>bb2055c493b17a90d9f6ddd548373c66</instance_id>
+        <instance_name>ven08761</instance_name>
+        <name>sp_widget_441658750f5b8310712b6af300d1b23c</name>
+        <payload>&lt;?xml version="1.0" encoding="UTF-8"?&gt;&lt;record_update table="sp_widget"&gt;&lt;sp_widget action="INSERT_OR_UPDATE"&gt;&lt;category&gt;custom&lt;/category&gt;&lt;client_script&gt;&lt;![CDATA[api.controller = function($window) {
+
+  /* =========================================================
+     GATENOW · REVIEWER RAIL · Client script
+
+     One toggle. Every link in the rail is a real anchor with an
+     href, so nothing here navigates and there is no navigation
+     sink for the open-redirect scan to find — sign out
+     included, which is a plain href to /logout.do.
+
+     The pointer-tracking light and the sliding thumb are gone
+     with the glass. Both needed DOM handles and geometry
+     constants that had to stay in step with the stylesheet, and
+     a rail that appears on every page is the wrong place to
+     carry that kind of coupling.
+
+     The collapsed state is remembered between pages. A rail
+     that springs back open on every navigation is one nobody
+     bothers collapsing twice.
+     ========================================================= */
+
+  var c = this;
+
+  var KEY = 'gn.reviewerRail.tight';
+
+  /* sessionStorage can be unavailable — private browsing, a
+     hardened profile, an iframe with storage blocked — and
+     touching it then throws rather than returning null, so
+     every access is wrapped. A rail that will not render
+     because it could not read a preference is worse than one
+     that forgets it. */
+  function remembered() {
+    try {
+      return $window.sessionStorage.getItem(KEY) === '1';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function remember(v) {
+    try {
+      $window.sessionStorage.setItem(KEY, v ? '1' : '0');
+    } catch (e) { /* forgetting is an acceptable outcome */ }
+  }
+
+  c.tight = remembered();
+
+  c.toggle = function() {
+    c.tight = !c.tight;
+    remember(c.tight);
+  };
+};]]&gt;&lt;/client_script&gt;&lt;controller_as&gt;c&lt;/controller_as&gt;&lt;css&gt;/* =========================================================&amp;#13;
+   GATENOW · REVIEWER RAIL&amp;#13;
+   Service Portal widget · CSS / SCSS&amp;#13;
+&amp;#13;
+   Selectors are written out in full. The Service Portal Sass&amp;#13;
+   compiler does not support parent selector concatenation.&amp;#13;
+&amp;#13;
+   Matched to the applicant portal's rail: white, flush to the&amp;#13;
+   edge, grouped under quiet section labels, one accent doing&amp;#13;
+   the work.&amp;#13;
+&amp;#13;
+   WHAT IS NOT HERE, ON PURPOSE&amp;#13;
+&amp;#13;
+   No backdrop blur, no drifting light, no pointer-tracking&amp;#13;
+   sheen. Those depend on a compositing stack that the Service&amp;#13;
+   Portal panel wrapper interferes with, and when any part of it&amp;#13;
+   fails there is no graceful version left — only hard-edged&amp;#13;
+   blobs where a menu should be. A rail is the one component on&amp;#13;
+   every page; it has to be the most boringly reliable thing in&amp;#13;
+   the product.&amp;#13;
+&amp;#13;
+   THE ACCENT&amp;#13;
+&amp;#13;
+   The current page is a pale blue ground, a 3px blue edge and&amp;#13;
+   blue text and icon. Three signals for one state sounds like&amp;#13;
+   too many until you watch somebody scan a rail: the ground&amp;#13;
+   finds it peripherally, the edge anchors it, the colour&amp;#13;
+   confirms it. Everything else on the rail stays grey so those&amp;#13;
+   three can be the only colour on screen.&amp;#13;
+&amp;#13;
+   TYPE&amp;#13;
+     brand      19  700  -0.02em&amp;#13;
+     group      11  600   0.09em caps&amp;#13;
+     item       15  500            → 600 when current&amp;#13;
+     count      11  600  tabular&amp;#13;
+     name       14  600&amp;#13;
+     role       12  400&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+/* Service Portal wraps every widget in a panel that clips and&amp;#13;
+   pads. The rail is the full height of the page and its&amp;#13;
+   tooltips have to escape the box, so the wrapper gets out of&amp;#13;
+   the way. */&amp;#13;
+.panel,&amp;#13;
+.panel-body,&amp;#13;
+.sp-widget {&amp;#13;
+  overflow: visible !important;&amp;#13;
+  margin: 0 !important;&amp;#13;
+  padding: 0 !important;&amp;#13;
+  border: 0 !important;&amp;#13;
+  background: transparent !important;&amp;#13;
+  box-shadow: none !important;&amp;#13;
+}&amp;#13;
+&amp;#13;
+&amp;#13;
+/* ---------- typeface ---------- */&amp;#13;
+&amp;#13;
+@font-face {&amp;#13;
+  font-family: "Outfit";&amp;#13;
+  font-style: normal;&amp;#13;
+  font-weight: 400;&amp;#13;
+  font-display: swap;&amp;#13;
+  src: url("/x_enno_gatenow_outfit_regular.woff2") format("woff2");&amp;#13;
+}&amp;#13;
+&amp;#13;
+@font-face {&amp;#13;
+  font-family: "Outfit";&amp;#13;
+  font-style: normal;&amp;#13;
+  font-weight: 500;&amp;#13;
+  font-display: swap;&amp;#13;
+  src: url("/x_enno_gatenow_outfit_medium.woff2") format("woff2");&amp;#13;
+}&amp;#13;
+&amp;#13;
+@font-face {&amp;#13;
+  font-family: "Outfit";&amp;#13;
+  font-style: normal;&amp;#13;
+  font-weight: 600;&amp;#13;
+  font-display: swap;&amp;#13;
+  src: url("/x_enno_gatenow_outfit_semibold.woff2") format("woff2");&amp;#13;
+}&amp;#13;
+&amp;#13;
+@font-face {&amp;#13;
+  font-family: "Outfit";&amp;#13;
+  font-style: normal;&amp;#13;
+  font-weight: 700;&amp;#13;
+  font-display: swap;&amp;#13;
+  src: url("/x_enno_gatenow_outfit_bold.woff2") format("woff2");&amp;#13;
+}&amp;#13;
+&amp;#13;
+&amp;#13;
+/* ---------- tokens ---------- */&amp;#13;
+$a-navy:  #0a2540;&amp;#13;
+$a-ink-2: #35455c;&amp;#13;
+$a-ink-3: #6b7a90;&amp;#13;
+$a-ink-4: #8a94a6;&amp;#13;
+$a-ink-5: #a6aebc;&amp;#13;
+&amp;#13;
+$a-line:   #e6eaf1;&amp;#13;
+$a-line-2: #eef1f6;&amp;#13;
+$a-tint:   #f4f6fa;&amp;#13;
+&amp;#13;
+$a-blue:    #1560e0;&amp;#13;
+$a-blue-dk: #0f4cbb;&amp;#13;
+$a-blue-1:  #eef4fe;&amp;#13;
+$a-blue-2:  #dbe7fc;&amp;#13;
+&amp;#13;
+$a-stop:   #b8394a;&amp;#13;
+$a-stop-1: #fdf2f3;&amp;#13;
+$a-stop-2: #f3d8dc;&amp;#13;
+&amp;#13;
+$a-white: #ffffff;&amp;#13;
+$a-ease:  cubic-bezier(0.32, 0.72, 0, 1);&amp;#13;
+&amp;#13;
+$a-font: "Outfit", "Segoe UI", Roboto, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;&amp;#13;
+&amp;#13;
+$r-wide:  264px;&amp;#13;
+$r-tight: 76px;&amp;#13;
+&amp;#13;
+&amp;#13;
+/* =========================================================&amp;#13;
+   THE RAIL&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+.gnr {&amp;#13;
+  flex: 0 0 auto;&amp;#13;
+  width: $r-wide;&amp;#13;
+  font-family: $a-font;&amp;#13;
+  transition: width 0.42s $a-ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr.is-tight { width: $r-tight; }&amp;#13;
+&amp;#13;
+.gnr *,&amp;#13;
+.gnr *::before,&amp;#13;
+.gnr *::after { box-sizing: border-box; }&amp;#13;
+&amp;#13;
+/* sticky rather than fixed: fixed takes the rail out of flow&amp;#13;
+   and the page beside it has to be padded by hand, which goes&amp;#13;
+   wrong the moment the width changes */&amp;#13;
+.gnr__inner {&amp;#13;
+  position: sticky;&amp;#13;
+  top: 0;&amp;#13;
+  display: flex;&amp;#13;
+  flex-direction: column;&amp;#13;
+  width: 100%;&amp;#13;
+  height: 100vh;&amp;#13;
+  background: $a-white;&amp;#13;
+  border-right: 1px solid $a-line;&amp;#13;
+  overflow: visible;&amp;#13;
+}&amp;#13;
+&amp;#13;
+&amp;#13;
+/* =========================================================&amp;#13;
+   BRAND&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+.gnr__brand {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  justify-content: space-between;&amp;#13;
+  gap: 10px;&amp;#13;
+  height: 72px;&amp;#13;
+  padding: 0 16px 0 20px;&amp;#13;
+  border-bottom: 1px solid $a-line-2;&amp;#13;
+  flex-shrink: 0;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-mark {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  gap: 12px;&amp;#13;
+  min-width: 0;&amp;#13;
+  color: $a-navy;&amp;#13;
+  text-decoration: none;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-mark:hover,&amp;#13;
+.gnr-mark:focus {&amp;#13;
+  color: $a-navy;&amp;#13;
+  text-decoration: none;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-mark__glyph {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  justify-content: center;&amp;#13;
+  width: 38px;&amp;#13;
+  height: 38px;&amp;#13;
+  flex-shrink: 0;&amp;#13;
+  border-radius: 11px;&amp;#13;
+  background: $a-blue;&amp;#13;
+  color: $a-white;&amp;#13;
+  transition: transform 0.4s $a-ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-mark:hover .gnr-mark__glyph { transform: scale(1.05); }&amp;#13;
+&amp;#13;
+.gnr-mark__name {&amp;#13;
+  font-size: 19px;&amp;#13;
+  font-weight: 700;&amp;#13;
+  letter-spacing: -0.02em;&amp;#13;
+  color: $a-navy;&amp;#13;
+  white-space: nowrap;&amp;#13;
+  overflow: hidden;&amp;#13;
+  transition: opacity 0.28s $a-ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-pull {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  justify-content: center;&amp;#13;
+  width: 28px;&amp;#13;
+  height: 28px;&amp;#13;
+  flex-shrink: 0;&amp;#13;
+  padding: 0;&amp;#13;
+  border: 1px solid $a-line;&amp;#13;
+  border-radius: 50%;&amp;#13;
+  background: $a-white;&amp;#13;
+  color: $a-ink-4;&amp;#13;
+  cursor: pointer;&amp;#13;
+  transition: background 0.3s $a-ease, color 0.3s $a-ease,&amp;#13;
+              border-color 0.3s $a-ease, transform 0.42s $a-ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-pull:hover {&amp;#13;
+  background: $a-tint;&amp;#13;
+  border-color: $a-blue-2;&amp;#13;
+  color: $a-blue;&amp;#13;
+}&amp;#13;
+&amp;#13;
+/* the chevron turns to point the way it will move the rail */&amp;#13;
+.gnr.is-tight .gnr-pull { transform: rotate(180deg); }&amp;#13;
+&amp;#13;
+&amp;#13;
+/* =========================================================&amp;#13;
+   NAVIGATION&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+.gnr__scroll {&amp;#13;
+  flex: 1;&amp;#13;
+  min-height: 0;&amp;#13;
+  padding: 20px 0 8px;&amp;#13;
+  /* visible, not auto: a scroll container clips the tooltips,&amp;#13;
+     and the nav is short enough not to need one */&amp;#13;
+  overflow: visible;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-group { margin-bottom: 22px; }&amp;#13;
+&amp;#13;
+.gnr .gnr-group__label {&amp;#13;
+  margin: 0 0 8px;&amp;#13;
+  padding: 0 20px;&amp;#13;
+  font-size: 11px;&amp;#13;
+  font-weight: 600;&amp;#13;
+  letter-spacing: 0.09em;&amp;#13;
+  text-transform: uppercase;&amp;#13;
+  color: $a-ink-5;&amp;#13;
+  white-space: nowrap;&amp;#13;
+  overflow: hidden;&amp;#13;
+  transition: opacity 0.28s $a-ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr .gnr-group__list {&amp;#13;
+  display: grid;&amp;#13;
+  gap: 2px;&amp;#13;
+  margin: 0;&amp;#13;
+  padding: 0;&amp;#13;
+  list-style: none;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-item {&amp;#13;
+  position: relative;&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  gap: 14px;&amp;#13;
+  height: 46px;&amp;#13;
+  padding: 0 16px 0 20px;&amp;#13;
+  color: $a-ink-2;&amp;#13;
+  font-size: 15px;&amp;#13;
+  font-weight: 500;&amp;#13;
+  text-decoration: none;&amp;#13;
+  white-space: nowrap;&amp;#13;
+  transition: background 0.26s $a-ease, color 0.26s $a-ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-item:hover,&amp;#13;
+.gnr-item:focus {&amp;#13;
+  background: $a-tint;&amp;#13;
+  color: $a-navy;&amp;#13;
+  text-decoration: none;&amp;#13;
+}&amp;#13;
+&amp;#13;
+/* Three signals for one state. The ground finds it&amp;#13;
+   peripherally, the edge anchors it, the colour confirms it —&amp;#13;
+   and because nothing else on the rail is coloured, those&amp;#13;
+   three are the only colour on the screen. */&amp;#13;
+.gnr-item.is-here {&amp;#13;
+  background: $a-blue-1;&amp;#13;
+  color: $a-blue;&amp;#13;
+  font-weight: 600;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-item.is-here:hover,&amp;#13;
+.gnr-item.is-here:focus {&amp;#13;
+  background: $a-blue-2;&amp;#13;
+  color: $a-blue-dk;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-item__edge {&amp;#13;
+  position: absolute;&amp;#13;
+  top: 50%;&amp;#13;
+  left: 0;&amp;#13;
+  width: 3px;&amp;#13;
+  height: 0;&amp;#13;
+  border-radius: 0 3px 3px 0;&amp;#13;
+  background: $a-blue;&amp;#13;
+  transform: translateY(-50%);&amp;#13;
+  transition: height 0.3s $a-ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-item.is-here .gnr-item__edge { height: 100%; }&amp;#13;
+&amp;#13;
+.gnr-item__ico {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  justify-content: center;&amp;#13;
+  width: 20px;&amp;#13;
+  flex-shrink: 0;&amp;#13;
+  color: $a-ink-3;&amp;#13;
+  transition: color 0.26s $a-ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-item:hover .gnr-item__ico    { color: $a-ink-2; }&amp;#13;
+.gnr-item.is-here .gnr-item__ico  { color: $a-blue; }&amp;#13;
+&amp;#13;
+.gnr-item__label {&amp;#13;
+  flex: 1;&amp;#13;
+  min-width: 0;&amp;#13;
+  overflow: hidden;&amp;#13;
+  text-overflow: ellipsis;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-item__n {&amp;#13;
+  flex-shrink: 0;&amp;#13;
+  min-width: 22px;&amp;#13;
+  padding: 2px 7px;&amp;#13;
+  border-radius: 999px;&amp;#13;
+  background: $a-tint;&amp;#13;
+  color: $a-ink-3;&amp;#13;
+  font-size: 11px;&amp;#13;
+  font-weight: 600;&amp;#13;
+  font-variant-numeric: tabular-nums;&amp;#13;
+  text-align: center;&amp;#13;
+  transition: background 0.26s $a-ease, color 0.26s $a-ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-item__n.is-alert {&amp;#13;
+  background: $a-stop-1;&amp;#13;
+  color: $a-stop;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-item.is-here .gnr-item__n {&amp;#13;
+  background: $a-white;&amp;#13;
+  color: $a-blue;&amp;#13;
+}&amp;#13;
+&amp;#13;
+&amp;#13;
+/* =========================================================&amp;#13;
+   OVERDUE&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+.gnr-alert {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  gap: 11px;&amp;#13;
+  margin: 0 14px 14px;&amp;#13;
+  padding: 11px 13px;&amp;#13;
+  border: 1px solid $a-stop-2;&amp;#13;
+  border-radius: 12px;&amp;#13;
+  background: $a-stop-1;&amp;#13;
+  color: $a-ink-2;&amp;#13;
+  text-decoration: none;&amp;#13;
+  white-space: nowrap;&amp;#13;
+  flex-shrink: 0;&amp;#13;
+  transition: background 0.3s $a-ease, border-color 0.3s $a-ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-alert:hover,&amp;#13;
+.gnr-alert:focus {&amp;#13;
+  background: #fbe9eb;&amp;#13;
+  border-color: #e8bfc6;&amp;#13;
+  color: $a-ink-2;&amp;#13;
+  text-decoration: none;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-alert__ico {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  justify-content: center;&amp;#13;
+  width: 20px;&amp;#13;
+  flex-shrink: 0;&amp;#13;
+  color: $a-stop;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-alert__body {&amp;#13;
+  display: flex;&amp;#13;
+  flex-direction: column;&amp;#13;
+  gap: 2px;&amp;#13;
+  min-width: 0;&amp;#13;
+  overflow: hidden;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-alert__n {&amp;#13;
+  font-size: 13px;&amp;#13;
+  font-weight: 600;&amp;#13;
+  letter-spacing: -0.006em;&amp;#13;
+  font-variant-numeric: tabular-nums;&amp;#13;
+  color: $a-stop;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-alert__label {&amp;#13;
+  font-size: 11px;&amp;#13;
+  color: $a-ink-4;&amp;#13;
+  overflow: hidden;&amp;#13;
+  text-overflow: ellipsis;&amp;#13;
+}&amp;#13;
+&amp;#13;
+&amp;#13;
+/* =========================================================&amp;#13;
+   WHO&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+.gnr__foot {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  gap: 8px;&amp;#13;
+  padding: 14px 16px 14px 20px;&amp;#13;
+  border-top: 1px solid $a-line-2;&amp;#13;
+  flex-shrink: 0;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-me {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  gap: 12px;&amp;#13;
+  flex: 1;&amp;#13;
+  min-width: 0;&amp;#13;
+  padding: 4px;&amp;#13;
+  margin: -4px;&amp;#13;
+  border-radius: 10px;&amp;#13;
+  color: $a-ink-2;&amp;#13;
+  text-decoration: none;&amp;#13;
+  white-space: nowrap;&amp;#13;
+  transition: background 0.3s $a-ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-me:hover,&amp;#13;
+.gnr-me:focus {&amp;#13;
+  background: $a-tint;&amp;#13;
+  color: $a-ink-2;&amp;#13;
+  text-decoration: none;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-me__avatar {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  justify-content: center;&amp;#13;
+  width: 38px;&amp;#13;
+  height: 38px;&amp;#13;
+  flex-shrink: 0;&amp;#13;
+  border-radius: 11px;&amp;#13;
+  background: $a-blue;&amp;#13;
+  color: $a-white;&amp;#13;
+  font-size: 13px;&amp;#13;
+  font-weight: 600;&amp;#13;
+  letter-spacing: 0.03em;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-me__body {&amp;#13;
+  display: flex;&amp;#13;
+  flex-direction: column;&amp;#13;
+  gap: 2px;&amp;#13;
+  min-width: 0;&amp;#13;
+  overflow: hidden;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-me__name {&amp;#13;
+  font-size: 14px;&amp;#13;
+  font-weight: 600;&amp;#13;
+  letter-spacing: -0.008em;&amp;#13;
+  color: $a-navy;&amp;#13;
+  overflow: hidden;&amp;#13;
+  text-overflow: ellipsis;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-me__role {&amp;#13;
+  font-size: 12px;&amp;#13;
+  color: $a-ink-4;&amp;#13;
+  overflow: hidden;&amp;#13;
+  text-overflow: ellipsis;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-out {&amp;#13;
+  display: flex;&amp;#13;
+  align-items: center;&amp;#13;
+  justify-content: center;&amp;#13;
+  width: 34px;&amp;#13;
+  height: 34px;&amp;#13;
+  flex-shrink: 0;&amp;#13;
+  border-radius: 10px;&amp;#13;
+  color: $a-ink-4;&amp;#13;
+  text-decoration: none;&amp;#13;
+  transition: background 0.3s $a-ease, color 0.3s $a-ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-out:hover,&amp;#13;
+.gnr-out:focus {&amp;#13;
+  background: $a-stop-1;&amp;#13;
+  color: $a-stop;&amp;#13;
+  text-decoration: none;&amp;#13;
+}&amp;#13;
+&amp;#13;
+&amp;#13;
+/* =========================================================&amp;#13;
+   COLLAPSED&amp;#13;
+&amp;#13;
+   Labels collapse to nothing and every row grows a tooltip.&amp;#13;
+   Nothing leaves the DOM: hiding by width and opacity keeps&amp;#13;
+   the transition smooth and keeps the labels readable to a&amp;#13;
+   screen reader.&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+.gnr.is-tight .gnr__brand {&amp;#13;
+  justify-content: center;&amp;#13;
+  gap: 0;&amp;#13;
+  padding: 0;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr.is-tight .gnr-mark__name,&amp;#13;
+.gnr.is-tight .gnr-item__label,&amp;#13;
+.gnr.is-tight .gnr-item__n,&amp;#13;
+.gnr.is-tight .gnr-alert__body,&amp;#13;
+.gnr.is-tight .gnr-me__body {&amp;#13;
+  width: 0;&amp;#13;
+  opacity: 0;&amp;#13;
+  overflow: hidden;&amp;#13;
+  pointer-events: none;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr.is-tight .gnr-mark { justify-content: center; }&amp;#13;
+&amp;#13;
+/* the pull sits under the mark rather than beside it, because&amp;#13;
+   at 76px there is no beside */&amp;#13;
+.gnr.is-tight .gnr-pull {&amp;#13;
+  position: absolute;&amp;#13;
+  top: 82px;&amp;#13;
+  left: 50%;&amp;#13;
+  transform: translateX(-50%) rotate(180deg);&amp;#13;
+  z-index: 2;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr.is-tight .gnr__scroll { padding-top: 46px; }&amp;#13;
+&amp;#13;
+/* the group label becomes a hairline. A four-letter&amp;#13;
+   abbreviation of "Workspace" says less than a rule does, and&amp;#13;
+   an empty gap loses the grouping altogether. */&amp;#13;
+.gnr.is-tight .gnr-group__label {&amp;#13;
+  height: 1px;&amp;#13;
+  margin: 0 20px 12px;&amp;#13;
+  padding: 0;&amp;#13;
+  overflow: hidden;&amp;#13;
+  background: $a-line-2;&amp;#13;
+  color: transparent;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr.is-tight .gnr-item,&amp;#13;
+.gnr.is-tight .gnr-me {&amp;#13;
+  justify-content: center;&amp;#13;
+  gap: 0;&amp;#13;
+  padding: 0;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr.is-tight .gnr-alert {&amp;#13;
+  justify-content: center;&amp;#13;
+  gap: 0;&amp;#13;
+  margin: 0 14px 14px;&amp;#13;
+  padding: 11px 0;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr.is-tight .gnr__foot {&amp;#13;
+  justify-content: center;&amp;#13;
+  padding: 14px 0;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr.is-tight .gnr-me {&amp;#13;
+  flex: 0 0 auto;&amp;#13;
+  margin: 0;&amp;#13;
+}&amp;#13;
+&amp;#13;
+/* the badge becomes a dot on the icon: the number cannot be&amp;#13;
+   read at this width, but the fact that there is one can */&amp;#13;
+.gnr.is-tight .gnr-item__ico { position: relative; }&amp;#13;
+&amp;#13;
+.gnr.is-tight .gnr-item.has-n .gnr-item__ico::after,&amp;#13;
+.gnr.is-tight .gnr-item.has-alert .gnr-item__ico::after {&amp;#13;
+  content: "";&amp;#13;
+  position: absolute;&amp;#13;
+  top: -1px;&amp;#13;
+  right: -3px;&amp;#13;
+  width: 7px;&amp;#13;
+  height: 7px;&amp;#13;
+  border-radius: 50%;&amp;#13;
+  box-shadow: 0 0 0 2px $a-white;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr.is-tight .gnr-item.has-n .gnr-item__ico::after     { background: $a-blue; }&amp;#13;
+.gnr.is-tight .gnr-item.has-alert .gnr-item__ico::after { background: $a-stop; }&amp;#13;
+&amp;#13;
+/* on the tinted active row the ring has to match that ground,&amp;#13;
+   not the card, or the dot sits in a white hole */&amp;#13;
+.gnr.is-tight .gnr-item.is-here .gnr-item__ico::after {&amp;#13;
+  box-shadow: 0 0 0 2px $a-blue-1;&amp;#13;
+}&amp;#13;
+&amp;#13;
+&amp;#13;
+/* ---------- tooltips ----------&amp;#13;
+&amp;#13;
+   CSS rather than script. A tooltip that needs a digest to&amp;#13;
+   appear arrives late enough to be useless, and the label it&amp;#13;
+   shows is already on the element.&amp;#13;
+   ------------------------------------------------------- */&amp;#13;
+&amp;#13;
+.gnr.is-tight .gnr-item,&amp;#13;
+.gnr.is-tight .gnr-alert,&amp;#13;
+.gnr.is-tight .gnr-me,&amp;#13;
+.gnr.is-tight .gnr-out,&amp;#13;
+.gnr.is-tight .gnr-pull { position: relative; }&amp;#13;
+&amp;#13;
+.gnr.is-tight [data-tip]::before {&amp;#13;
+  content: attr(data-tip);&amp;#13;
+  position: absolute;&amp;#13;
+  top: 50%;&amp;#13;
+  left: calc(100% + 12px);&amp;#13;
+  z-index: 60;&amp;#13;
+  padding: 7px 11px;&amp;#13;
+  border-radius: 9px;&amp;#13;
+  background: $a-navy;&amp;#13;
+  box-shadow: 0 10px 24px -12px rgba(10, 37, 64, 0.7);&amp;#13;
+  color: $a-white;&amp;#13;
+  font-size: 12.5px;&amp;#13;
+  font-weight: 500;&amp;#13;
+  white-space: nowrap;&amp;#13;
+  opacity: 0;&amp;#13;
+  transform: translate(-5px, -50%);&amp;#13;
+  pointer-events: none;&amp;#13;
+  transition: opacity 0.2s $a-ease, transform 0.2s $a-ease;&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr.is-tight [data-tip]:hover::before,&amp;#13;
+.gnr.is-tight [data-tip]:focus-visible::before {&amp;#13;
+  opacity: 1;&amp;#13;
+  transform: translate(0, -50%);&amp;#13;
+}&amp;#13;
+&amp;#13;
+.gnr-item:focus-visible,&amp;#13;
+.gnr-me:focus-visible,&amp;#13;
+.gnr-out:focus-visible,&amp;#13;
+.gnr-mark:focus-visible,&amp;#13;
+.gnr-alert:focus-visible,&amp;#13;
+.gnr-pull:focus-visible {&amp;#13;
+  outline: 2px solid $a-blue;&amp;#13;
+  outline-offset: -2px;&amp;#13;
+}&amp;#13;
+&amp;#13;
+&amp;#13;
+/* =========================================================&amp;#13;
+   MOTION&amp;#13;
+&amp;#13;
+   One short cascade on load and nothing after. A rail that is&amp;#13;
+   on every page should not perform on every page.&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+@media (prefers-reduced-motion: no-preference) {&amp;#13;
+&amp;#13;
+  @keyframes gnrIn {&amp;#13;
+    from { opacity: 0; transform: translateX(-8px); }&amp;#13;
+    to   { opacity: 1; transform: translateX(0); }&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .gnr__brand { animation: gnrIn 0.42s $a-ease backwards; }&amp;#13;
+&amp;#13;
+  .gnr .gnr-group__label { animation: gnrIn 0.38s $a-ease 0.08s backwards; }&amp;#13;
+&amp;#13;
+  .gnr .gnr-group__list li { animation: gnrIn 0.38s $a-ease backwards; }&amp;#13;
+&amp;#13;
+  .gnr .gnr-group__list li:nth-child(1) { animation-delay: 0.10s; }&amp;#13;
+  .gnr .gnr-group__list li:nth-child(2) { animation-delay: 0.14s; }&amp;#13;
+  .gnr .gnr-group__list li:nth-child(3) { animation-delay: 0.18s; }&amp;#13;
+  .gnr .gnr-group__list li:nth-child(n+4) { animation-delay: 0.22s; }&amp;#13;
+&amp;#13;
+  .gnr-alert { animation: gnrIn 0.4s $a-ease 0.26s backwards; }&amp;#13;
+  .gnr__foot { animation: gnrIn 0.4s $a-ease 0.3s backwards; }&amp;#13;
+}&amp;#13;
+&amp;#13;
+&amp;#13;
+/* =========================================================&amp;#13;
+   RESPONSIVE&amp;#13;
+&amp;#13;
+   Below the tablet breakpoint the rail locks to icons and&amp;#13;
+   loses the collapse control. 264px of navigation on a 400px&amp;#13;
+   screen leaves no page, so the choice is not worth offering.&amp;#13;
+   ========================================================= */&amp;#13;
+&amp;#13;
+@media (max-width: 900px) {&amp;#13;
+&amp;#13;
+  .gnr,&amp;#13;
+  .gnr.is-tight { width: $r-tight; }&amp;#13;
+&amp;#13;
+  .gnr .gnr-mark__name,&amp;#13;
+  .gnr .gnr-item__label,&amp;#13;
+  .gnr .gnr-item__n,&amp;#13;
+  .gnr .gnr-alert__body,&amp;#13;
+  .gnr .gnr-me__body {&amp;#13;
+    width: 0;&amp;#13;
+    opacity: 0;&amp;#13;
+    overflow: hidden;&amp;#13;
+    pointer-events: none;&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .gnr .gnr__brand {&amp;#13;
+    justify-content: center;&amp;#13;
+    gap: 0;&amp;#13;
+    padding: 0;&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .gnr .gnr-mark { justify-content: center; }&amp;#13;
+&amp;#13;
+  /* the pull has nothing left to do once the width is fixed */&amp;#13;
+  .gnr .gnr-pull { display: none; }&amp;#13;
+&amp;#13;
+  .gnr .gnr__scroll { padding-top: 20px; }&amp;#13;
+&amp;#13;
+  .gnr .gnr-group__label {&amp;#13;
+    height: 1px;&amp;#13;
+    margin: 0 20px 12px;&amp;#13;
+    padding: 0;&amp;#13;
+    overflow: hidden;&amp;#13;
+    background: $a-line-2;&amp;#13;
+    color: transparent;&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .gnr .gnr-item,&amp;#13;
+  .gnr .gnr-me {&amp;#13;
+    justify-content: center;&amp;#13;
+    gap: 0;&amp;#13;
+    padding: 0;&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .gnr .gnr-alert {&amp;#13;
+    justify-content: center;&amp;#13;
+    gap: 0;&amp;#13;
+    padding: 11px 0;&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .gnr .gnr__foot {&amp;#13;
+    justify-content: center;&amp;#13;
+    padding: 14px 0;&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .gnr .gnr-me {&amp;#13;
+    flex: 0 0 auto;&amp;#13;
+    margin: 0;&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .gnr .gnr-item__ico { position: relative; }&amp;#13;
+&amp;#13;
+  .gnr .gnr-item.has-n .gnr-item__ico::after,&amp;#13;
+  .gnr .gnr-item.has-alert .gnr-item__ico::after {&amp;#13;
+    content: "";&amp;#13;
+    position: absolute;&amp;#13;
+    top: -1px;&amp;#13;
+    right: -3px;&amp;#13;
+    width: 7px;&amp;#13;
+    height: 7px;&amp;#13;
+    border-radius: 50%;&amp;#13;
+    box-shadow: 0 0 0 2px $a-white;&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .gnr .gnr-item.has-n .gnr-item__ico::after     { background: $a-blue; }&amp;#13;
+  .gnr .gnr-item.has-alert .gnr-item__ico::after { background: $a-stop; }&amp;#13;
+&amp;#13;
+  .gnr .gnr-item.is-here .gnr-item__ico::after {&amp;#13;
+    box-shadow: 0 0 0 2px $a-blue-1;&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .gnr-item,&amp;#13;
+  .gnr-alert,&amp;#13;
+  .gnr-me,&amp;#13;
+  .gnr-out { position: relative; }&amp;#13;
+&amp;#13;
+  .gnr [data-tip]::before {&amp;#13;
+    content: attr(data-tip);&amp;#13;
+    position: absolute;&amp;#13;
+    top: 50%;&amp;#13;
+    left: calc(100% + 12px);&amp;#13;
+    z-index: 60;&amp;#13;
+    padding: 7px 11px;&amp;#13;
+    border-radius: 9px;&amp;#13;
+    background: $a-navy;&amp;#13;
+    box-shadow: 0 10px 24px -12px rgba(10, 37, 64, 0.7);&amp;#13;
+    color: $a-white;&amp;#13;
+    font-size: 12.5px;&amp;#13;
+    font-weight: 500;&amp;#13;
+    white-space: nowrap;&amp;#13;
+    opacity: 0;&amp;#13;
+    transform: translate(-5px, -50%);&amp;#13;
+    pointer-events: none;&amp;#13;
+    transition: opacity 0.2s $a-ease, transform 0.2s $a-ease;&amp;#13;
+  }&amp;#13;
+&amp;#13;
+  .gnr [data-tip]:hover::before,&amp;#13;
+  .gnr [data-tip]:focus-visible::before {&amp;#13;
+    opacity: 1;&amp;#13;
+    transform: translate(0, -50%);&amp;#13;
+  }&amp;#13;
+}&amp;#13;
+&amp;#13;
+@media (prefers-reduced-motion: reduce) {&amp;#13;
+  .gnr,&amp;#13;
+  .gnr * {&amp;#13;
+    transition: none;&amp;#13;
+    animation: none;&amp;#13;
+  }&amp;#13;
+  .gnr-mark:hover .gnr-mark__glyph { transform: none; }&amp;#13;
+}&lt;/css&gt;&lt;data_table&gt;sp_instance&lt;/data_table&gt;&lt;demo_data/&gt;&lt;description/&gt;&lt;docs/&gt;&lt;field_list/&gt;&lt;has_preview&gt;false&lt;/has_preview&gt;&lt;id&gt;review_sidebar&lt;/id&gt;&lt;internal&gt;false&lt;/internal&gt;&lt;link&gt;&lt;![CDATA[function link(scope, element, attrs, controller) {
+  
+}]]&gt;&lt;/link&gt;&lt;name&gt;Review Sidebar&lt;/name&gt;&lt;option_schema/&gt;&lt;public&gt;false&lt;/public&gt;&lt;roles/&gt;&lt;script&gt;&lt;![CDATA[(function () {
+
+  /* =========================================================
+     GATENOW · REVIEWER RAIL
+     Service Portal widget · Server script
+
+     Navigation for the reviewer portal, plus the two counts
+     worth putting on it: how much is open, and how much of that
+     is late.
+
+     Its own widget on purpose. The rail used to live inside the
+     dashboard, which meant the dashboard owned navigation for
+     pages it knew nothing about, and adding a page meant
+     editing a widget that had no other reason to change.
+
+     The counts use GlideAggregate rather than walking the
+     table. The rail appears on every page and must not cost a
+     full read of the review table each time one loads.
+     ========================================================= */
+
+  var REVIEW = 'x_enno_gatenow_grant_review';
+
+  var me = gs.getUserID();
+
+  function opt(name, fallback) {
+    var v = options[name];
+    return (v === null || v === undefined || v === '') ? fallback : v.toString();
+  }
+
+  function url(pageId) { return '?id=' + pageId; }
+
+
+  /* ============================================================
+     WHO
+     ============================================================ */
+
+  var u = gs.getUser();
+
+  data.user = {
+    name    : u.getDisplayName() || gs.getUserName(),
+    title   : '',
+    initials: ((u.getFirstName() || 'R').charAt(0) +
+               (u.getLastName()  || '').charAt(0)).toUpperCase()
+  };
+
+  try {
+    var ur = new GlideRecordSecure('sys_user');
+    if (ur.get(me)) data.user.title = ur.getValue('title') || '';
+  } catch (e) { /* the title is decoration, not a requirement */ }
+
+
+  /* ============================================================
+     THE COUNTS
+
+     Two aggregates, not a read. "Open" is anything not settled;
+     "overdue" is open and past its deadline. Both are scoped to
+     the groups this reviewer belongs to, so the badge matches
+     what the dashboard will show them.
+     ============================================================ */
+
+  var groups = [];
+
+  try {
+    var gm = new GlideRecordSecure('sys_user_grmember');
+    gm.addQuery('user', me);
+    gm.query();
+    while (gm.next()) groups.push(gm.getValue('group'));
+  } catch (e) {
+    gs.warn('[ReviewerRail] group membership unreadable: ' + e.message);
+  }
+
+  /* These are the status values the review table stores. They
+     are display strings rather than choice keys, which is what
+     the rest of the reviewer code already assumes — if that
+     changes, this list and the dashboard's tone map change
+     together. */
+  var SETTLED = ['Review completed', 'Declined by Reviewer'];
+
+  var open    = 0;
+  var overdue = 0;
+
+  if (groups.length) {
+
+    try {
+      var ga = new GlideAggregate(REVIEW);
+      ga.addQuery('review_group', 'IN', groups.join(','));
+      ga.addQuery('status', 'NOT IN', SETTLED.join(','));
+      ga.addAggregate('COUNT');
+      ga.query();
+      if (ga.next()) open = parseInt(ga.getAggregate('COUNT'), 10) || 0;
+    } catch (e) {
+      gs.info('[ReviewerRail] open count unavailable: ' + e.message);
+    }
+
+    try {
+      var gd = new GlideAggregate(REVIEW);
+      gd.addQuery('review_group', 'IN', groups.join(','));
+      gd.addQuery('status', 'NOT IN', SETTLED.join(','));
+      gd.addQuery('review_deadline', '&lt;', new GlideDateTime().getValue());
+      gd.addAggregate('COUNT');
+      gd.query();
+      if (gd.next()) overdue = parseInt(gd.getAggregate('COUNT'), 10) || 0;
+    } catch (e) {
+      gs.info('[ReviewerRail] overdue count unavailable: ' + e.message);
+    }
+  }
+
+  data.overdue = overdue;
+
+
+  /* ============================================================
+     NAVIGATION
+
+     Page ids come from widget options so the rail can be
+     repointed without editing a script. The current page is read
+     from the URL rather than passed in, so any page the rail is
+     dropped on highlights itself with no extra wiring.
+     ============================================================ */
+
+  var here = '' + ($sp.getParameter('id') || '');
+
+  var pages = {
+    dashboard: opt('dashboard_page', 'review_dashboard'),
+    queue    : opt('queue_page',     'review_proposals'),
+    done     : opt('completed_page', 'review_completed'),
+    programs : opt('programs_page',  'review_programs'),
+    profile  : opt('profile_page',   'user_profile')
+  };
+
+  data.homeUrl    = url(pages.dashboard);
+  data.queueUrl   = url(pages.queue);
+  data.profileUrl = url(pages.profile);
+
+  /* The icon is a semantic key, not a font class. The template
+     switches on it and draws the path inline, because no icon
+     font gives you a consistent 1.75 stroke across every glyph
+     and inconsistent weight is what makes a rail look
+     assembled rather than drawn.
+
+     Grouped rather than flat. Four items need no grouping; six
+     do, and a rail that cannot absorb its sixth item without
+     becoming a list is one that gets rewritten the first time
+     somebody adds a page. The group is decided here so the
+     template never has to know the shape of the menu. */
+  data.groups = [
+    {
+      key  : 'work',
+      label: gs.getMessage('Workspace'),
+      items: [
+        {
+          key  : 'dashboard',
+          label: gs.getMessage('Dashboard'),
+          icon : 'grid',
+          url  : url(pages.dashboard),
+          active: here === pages.dashboard,
+          count: 0
+        },
+        {
+          key  : 'queue',
+          label: gs.getMessage('My reviews'),
+          icon : 'list',
+          url  : url(pages.queue),
+          active: here === pages.queue,
+          /* the badge carries what is open, and overdue turns it
+             red rather than adding a second badge — one number
+             in one place, coloured by whether it is a problem */
+          count: open,
+          alert: overdue &gt; 0
+        },
+        {
+          key  : 'done',
+          label: gs.getMessage('Completed'),
+          icon : 'check',
+          url  : url(pages.done),
+          active: here === pages.done,
+          count: 0
+        }
+      ]
+    },
+    {
+      key  : 'library',
+      label: gs.getMessage('Library'),
+      items: [
+        {
+          key  : 'programs',
+          label: gs.getMessage('Programs'),
+          icon : 'folder',
+          url  : url(pages.programs),
+          active: here === pages.programs,
+          count: 0
+        }
+      ]
+    }
+  ];
+
+  /* a detail page is reached from the queue, so it lights the
+     queue rather than leaving the rail with nothing lit */
+  if (here) {
+
+    var lit = false;
+
+    for (var g = 0; g &lt; data.groups.length; g++) {
+      for (var i = 0; i &lt; data.groups[g].items.length; i++) {
+        if (data.groups[g].items[i].active) { lit = true; break; }
+      }
+    }
+
+    if (!lit &amp;&amp; here.indexOf('review') !== -1) {
+      for (var g2 = 0; g2 &lt; data.groups.length; g2++) {
+        for (var i2 = 0; i2 &lt; data.groups[g2].items.length; i2++) {
+          if (data.groups[g2].items[i2].key === 'queue') {
+            data.groups[g2].items[i2].active = true;
+          }
+        }
+      }
+    }
+  }
+
+  data.t = {
+    brand     : gs.getMessage('GateNow'),
+    brandSub  : gs.getMessage('Review'),
+    nav       : gs.getMessage('Reviewer navigation'),
+    home      : gs.getMessage('Go to the dashboard'),
+
+    collapse  : gs.getMessage('Collapse the menu'),
+    expand    : gs.getMessage('Expand the menu'),
+
+    overdue   : gs.getMessage('overdue'),
+    overdueSub: gs.getMessage('Past the review deadline'),
+    role      : gs.getMessage('Reviewer'),
+    logout    : gs.getMessage('Sign out')
+  };
+
+})();]]&gt;&lt;/script&gt;&lt;servicenow&gt;false&lt;/servicenow&gt;&lt;sys_class_name&gt;sp_widget&lt;/sys_class_name&gt;&lt;sys_created_by&gt;admin&lt;/sys_created_by&gt;&lt;sys_created_on&gt;2026-09-13 14:43:42&lt;/sys_created_on&gt;&lt;sys_id&gt;441658750f5b8310712b6af300d1b23c&lt;/sys_id&gt;&lt;sys_mod_count&gt;3&lt;/sys_mod_count&gt;&lt;sys_name&gt;Review Sidebar&lt;/sys_name&gt;&lt;sys_package display_value="GateNow" source="x_enno_gatenow"&gt;eabeaf98eb033a10520dfbdffdc0cd51&lt;/sys_package&gt;&lt;sys_policy/&gt;&lt;sys_scope display_value="GateNow"&gt;eabeaf98eb033a10520dfbdffdc0cd51&lt;/sys_scope&gt;&lt;sys_update_name&gt;sp_widget_441658750f5b8310712b6af300d1b23c&lt;/sys_update_name&gt;&lt;sys_updated_by&gt;umar.farooq&lt;/sys_updated_by&gt;&lt;sys_updated_on&gt;2026-09-13 15:12:08&lt;/sys_updated_on&gt;&lt;template&gt;&lt;![CDATA[&lt;!-- =========================================================
+     GATENOW · REVIEWER RAIL
+     Service Portal widget · HTML template
+
+     Built to match the applicant portal's rail, so a person who
+     is both an applicant and a reviewer sees one product rather
+     than two.
+
+     White, flush to the edge, grouped under quiet section
+     labels, and one accent doing the work. No glass, no blur,
+     no drifting light: those depend on a stack that the Service
+     Portal panel wrapper interferes with, and when any part of
+     it fails there is no graceful version of it left.
+
+     Icons are inline SVG rather than a font. The line weight in
+     the applicant rail is 1.75 and no icon font gives you that
+     — Font Awesome's outline set is heavier and inconsistent
+     between glyphs, which is what makes a rail look assembled
+     rather than drawn.
+     ========================================================= --&gt;
+
+&lt;nav class="gnr" ng-class="{'is-tight': c.tight}" aria-label="{{c.data.t.nav}}"&gt;
+
+  &lt;div class="gnr__inner"&gt;
+
+    &lt;!-- ═══════════════ BRAND ═══════════════ --&gt;
+    &lt;header class="gnr__brand"&gt;
+
+      &lt;a class="gnr-mark" ng-href="{{c.data.homeUrl}}" aria-label="{{c.data.t.home}}"&gt;
+        &lt;span class="gnr-mark__glyph" aria-hidden="true"&gt;
+          &lt;svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor"
+               stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"&gt;
+            &lt;path d="M12 4v16"&gt;&lt;/path&gt;
+            &lt;path d="M5 8h14"&gt;&lt;/path&gt;
+            &lt;path d="M5 8l-2.5 5.5a3 3 0 0 0 5 0z"&gt;&lt;/path&gt;
+            &lt;path d="M19 8l2.5 5.5a3 3 0 0 1-5 0z"&gt;&lt;/path&gt;
+            &lt;path d="M8.5 20h7"&gt;&lt;/path&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+        &lt;span class="gnr-mark__name"&gt;{{c.data.t.brand}}&lt;/span&gt;
+      &lt;/a&gt;
+
+      &lt;button type="button" class="gnr-pull"
+              ng-click="c.toggle()"
+              ng-attr-aria-expanded="{{!c.tight}}"
+              aria-label="{{c.tight ? c.data.t.expand : c.data.t.collapse}}"
+              ng-attr-data-tip="{{c.tight ? c.data.t.expand : c.data.t.collapse}}"&gt;
+        &lt;svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round"&gt;
+          &lt;path d="M15 6l-6 6 6 6"&gt;&lt;/path&gt;
+        &lt;/svg&gt;
+      &lt;/button&gt;
+
+    &lt;/header&gt;
+
+
+    &lt;!-- ═══════════════ NAVIGATION ═══════════════ --&gt;
+    &lt;div class="gnr__scroll"&gt;
+
+      &lt;section class="gnr-group" ng-repeat="g in c.data.groups track by g.key"&gt;
+
+        &lt;p class="gnr-group__label"&gt;{{g.label}}&lt;/p&gt;
+
+        &lt;ul class="gnr-group__list"&gt;
+          &lt;li ng-repeat="n in g.items track by n.key"&gt;
+            &lt;a class="gnr-item"
+               ng-class="{'is-here': n.active, 'has-n': n.count &gt; 0, 'has-alert': n.alert}"
+               ng-href="{{n.url}}"
+               ng-attr-aria-current="{{n.active ? 'page' : undefined}}"
+               ng-attr-data-tip="{{n.label}}"&gt;
+
+              &lt;span class="gnr-item__edge" aria-hidden="true"&gt;&lt;/span&gt;
+
+              &lt;!-- one weight, one corner radius, one grid. An
+                   icon set that is drawn rather than collected
+                   is most of what makes a rail look finished. --&gt;
+              &lt;span class="gnr-item__ico" ng-switch="n.icon" aria-hidden="true"&gt;
+
+                &lt;svg ng-switch-when="grid" viewBox="0 0 24 24" width="18" height="18" fill="none"
+                     stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"&gt;
+                  &lt;rect x="3" y="3" width="7.5" height="7.5" rx="2"&gt;&lt;/rect&gt;
+                  &lt;rect x="13.5" y="3" width="7.5" height="7.5" rx="2"&gt;&lt;/rect&gt;
+                  &lt;rect x="3" y="13.5" width="7.5" height="7.5" rx="2"&gt;&lt;/rect&gt;
+                  &lt;rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"&gt;&lt;/rect&gt;
+                &lt;/svg&gt;
+
+                &lt;svg ng-switch-when="list" viewBox="0 0 24 24" width="18" height="18" fill="none"
+                     stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"&gt;
+                  &lt;path d="M9 6h12"&gt;&lt;/path&gt;
+                  &lt;path d="M9 12h12"&gt;&lt;/path&gt;
+                  &lt;path d="M9 18h12"&gt;&lt;/path&gt;
+                  &lt;circle cx="4" cy="6" r="1.2"&gt;&lt;/circle&gt;
+                  &lt;circle cx="4" cy="12" r="1.2"&gt;&lt;/circle&gt;
+                  &lt;circle cx="4" cy="18" r="1.2"&gt;&lt;/circle&gt;
+                &lt;/svg&gt;
+
+                &lt;svg ng-switch-when="check" viewBox="0 0 24 24" width="18" height="18" fill="none"
+                     stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"&gt;
+                  &lt;path d="M21 11.2V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"&gt;&lt;/path&gt;
+                  &lt;path d="M8.5 11.5l3 3L21 5"&gt;&lt;/path&gt;
+                &lt;/svg&gt;
+
+                &lt;svg ng-switch-when="folder" viewBox="0 0 24 24" width="18" height="18" fill="none"
+                     stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"&gt;
+                  &lt;path d="M3 7.5a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"&gt;&lt;/path&gt;
+                &lt;/svg&gt;
+
+                &lt;svg ng-switch-default viewBox="0 0 24 24" width="18" height="18" fill="none"
+                     stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"&gt;
+                  &lt;circle cx="12" cy="12" r="8.5"&gt;&lt;/circle&gt;
+                &lt;/svg&gt;
+
+              &lt;/span&gt;
+
+              &lt;span class="gnr-item__label"&gt;{{n.label}}&lt;/span&gt;
+
+              &lt;!-- a count only appears when it is not zero. A
+                   badge reading 0 costs attention and returns
+                   nothing. --&gt;
+              &lt;span class="gnr-item__n"
+                    ng-if="n.count"
+                    ng-class="{'is-alert': n.alert}"&gt;{{n.count}}&lt;/span&gt;
+
+            &lt;/a&gt;
+          &lt;/li&gt;
+        &lt;/ul&gt;
+
+      &lt;/section&gt;
+
+    &lt;/div&gt;
+
+
+    &lt;!-- ═══════════════ OVERDUE ═══════════════
+
+         Present only when the number is not zero: a standing
+         banner that is usually empty teaches people to skip the
+         place it appears.
+         ═══════════════════════════════════════ --&gt;
+    &lt;a class="gnr-alert" ng-if="c.data.overdue" ng-href="{{c.data.queueUrl}}"
+       ng-attr-data-tip="{{c.data.overdue}} {{c.data.t.overdue}}"&gt;
+
+      &lt;span class="gnr-alert__ico" aria-hidden="true"&gt;
+        &lt;svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+             stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"&gt;
+          &lt;circle cx="12" cy="12" r="8.5"&gt;&lt;/circle&gt;
+          &lt;path d="M12 7.5V12l3 1.8"&gt;&lt;/path&gt;
+        &lt;/svg&gt;
+      &lt;/span&gt;
+
+      &lt;span class="gnr-alert__body"&gt;
+        &lt;span class="gnr-alert__n"&gt;{{c.data.overdue}} {{c.data.t.overdue}}&lt;/span&gt;
+        &lt;span class="gnr-alert__label"&gt;{{c.data.t.overdueSub}}&lt;/span&gt;
+      &lt;/span&gt;
+
+    &lt;/a&gt;
+
+
+    &lt;!-- ═══════════════ WHO ═══════════════ --&gt;
+    &lt;footer class="gnr__foot"&gt;
+
+      &lt;a class="gnr-me" ng-href="{{c.data.profileUrl}}"
+         ng-attr-data-tip="{{c.data.user.name}}"&gt;
+        &lt;span class="gnr-me__avatar"&gt;{{c.data.user.initials}}&lt;/span&gt;
+        &lt;span class="gnr-me__body"&gt;
+          &lt;span class="gnr-me__name"&gt;{{c.data.user.name}}&lt;/span&gt;
+          &lt;span class="gnr-me__role"&gt;{{c.data.user.title || c.data.t.role}}&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/a&gt;
+
+      &lt;!-- Sign out is a real server round trip, so it is a plain
+           anchor rather than anything built in script. --&gt;
+      &lt;a class="gnr-out" href="/logout.do"
+         aria-label="{{c.data.t.logout}}"
+         ng-attr-data-tip="{{c.data.t.logout}}"&gt;
+        &lt;svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+             stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"&gt;
+          &lt;path d="M15 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3"&gt;&lt;/path&gt;
+          &lt;path d="M10 17l5-5-5-5"&gt;&lt;/path&gt;
+          &lt;path d="M15 12H3"&gt;&lt;/path&gt;
+        &lt;/svg&gt;
+      &lt;/a&gt;
+
+    &lt;/footer&gt;
+
+  &lt;/div&gt;
+
+&lt;/nav&gt;]]&gt;&lt;/template&gt;&lt;/sp_widget&gt;&lt;/record_update&gt;</payload>
+        <payload_hash>-1612370060</payload_hash>
+        <record_name>Review Sidebar</record_name>
+        <reverted_from/>
+        <source>67a05b350fb28b10712b6af300d1b202</source>
+        <source_table>sys_update_set</source_table>
+        <state>current</state>
+        <sys_created_by>umar.farooq</sys_created_by>
+        <sys_created_on>2026-09-13 15:12:08</sys_created_on>
+        <sys_id>3bec10f10f9b8310712b6af300d1b2fc</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_recorded_at>1a09b53642e0000001</sys_recorded_at>
+        <sys_updated_by>umar.farooq</sys_updated_by>
+        <sys_updated_on>2026-09-13 15:12:08</sys_updated_on>
+        <type>Widget</type>
+        <update_guid>77ec10f1d79b8310b790fdca20e923fb</update_guid>
+        <update_guid_history>77ec10f1d79b8310b790fdca20e923fb:-1612370060,268bd031bd9b83101d81d1ea3e3e34cd:-544761099,b747d439be5b831052f7a3700eb24a24:-870490957,d366d4b5305b83100d20418c01509a74:793794874</update_guid_history>
+    </sys_update_version>
+    <sys_metadata_delete action="INSERT_OR_UPDATE">
+        <sys_audit_delete display_value="Review Sidebar">f0e49a629353c710d444c9b877373c58</sys_audit_delete>
+        <sys_class_name>sys_metadata_delete</sys_class_name>
+        <sys_created_by>umar.farooq</sys_created_by>
+        <sys_created_on>2026-09-16 07:51:41</sys_created_on>
+        <sys_db_object display_value="" name="sp_widget">sp_widget</sys_db_object>
+        <sys_id>167605aa54eb49808733b6ab5e7ae400</sys_id>
+        <sys_metadata>441658750f5b8310712b6af300d1b23c</sys_metadata>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>Review Sidebar</sys_name>
+        <sys_package display_value="GateNow" source="x_enno_gatenow">eabeaf98eb033a10520dfbdffdc0cd51</sys_package>
+        <sys_parent/>
+        <sys_policy/>
+        <sys_scope display_value="GateNow">eabeaf98eb033a10520dfbdffdc0cd51</sys_scope>
+        <sys_scope_delete display_value="">095aa346c8b54bee96df90d0befef064</sys_scope_delete>
+        <sys_update_name>sp_widget_441658750f5b8310712b6af300d1b23c</sys_update_name>
+        <sys_update_version display_value="sp_widget_441658750f5b8310712b6af300d1b23c">3bec10f10f9b8310712b6af300d1b2fc</sys_update_version>
+        <sys_updated_by>umar.farooq</sys_updated_by>
+        <sys_updated_on>2026-09-16 07:51:41</sys_updated_on>
+    </sys_metadata_delete>
+</record_update>
